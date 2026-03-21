@@ -56,7 +56,6 @@ import type {
 
 const STORAGE_KEYS = {
   baseUrl: "cockpit.management.base-url",
-  key: "cockpit.management.key",
 }
 
 const NAV_ITEMS = [
@@ -215,9 +214,7 @@ function App() {
       import.meta.env.VITE_MANAGEMENT_API_BASE_URL ?? "",
     ),
   )
-  const [managementKey, setManagementKey] = useState(() =>
-    getStoredValue(STORAGE_KEYS.key),
-  )
+  const [managementKey, setManagementKey] = useState("")
   const [connectionState, setConnectionState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle")
@@ -232,6 +229,7 @@ function App() {
 
   const [configJson, setConfigJson] = useState("{}")
   const [configYaml, setConfigYaml] = useState("")
+  const [configYamlAvailable, setConfigYamlAvailable] = useState(true)
   const [latestVersion, setLatestVersion] = useState<string | null>(null)
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(
     DEFAULT_RUNTIME_SETTINGS,
@@ -279,10 +277,6 @@ function App() {
   }, [serverBaseUrl])
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEYS.key, managementKey)
-  }, [managementKey])
-
-  useEffect(() => {
     if (!managementKey.trim()) {
       return
     }
@@ -326,6 +320,7 @@ function App() {
   async function loadDashboard(showSuccess: boolean) {
     const client = createManagementClient(serverBaseUrl, managementKey)
     setConnectionState("loading")
+    void loadLatestVersion(client)
 
     await withBusy(
       "load-dashboard",
@@ -333,7 +328,6 @@ function App() {
         const [
           configResult,
           configYamlResult,
-          latestVersionResult,
           debugResult,
           requestLogResult,
           wsAuthResult,
@@ -352,7 +346,6 @@ function App() {
         ] = await Promise.allSettled([
           client.getJson<Record<string, unknown>>("/config"),
           client.getText("/config.yaml"),
-          client.getJson<{ "latest-version": string }>("/latest-version"),
           client.getJson<{ debug: boolean }>("/debug"),
           client.getJson<{ "request-log": boolean }>("/request-log"),
           client.getJson<{ "ws-auth": boolean }>("/ws-auth"),
@@ -386,9 +379,6 @@ function App() {
 
         if (configResult.status === "rejected") {
           throw configResult.reason
-        }
-        if (configYamlResult.status === "rejected") {
-          throw configYamlResult.reason
         }
         if (debugResult.status === "rejected") {
           throw debugResult.reason
@@ -437,7 +427,13 @@ function App() {
         }
 
         setConfigJson(prettyJson(configResult.value))
-        setConfigYaml(configYamlResult.value)
+        if (configYamlResult.status === "fulfilled") {
+          setConfigYaml(configYamlResult.value)
+          setConfigYamlAvailable(true)
+        } else {
+          setConfigYaml("")
+          setConfigYamlAvailable(false)
+        }
         setRuntimeSettings({
           debug: debugResult.value.debug,
           requestLog: requestLogResult.value["request-log"],
@@ -473,11 +469,6 @@ function App() {
           ),
         )
         setAuthFiles(authFilesResult.value.files)
-        setLatestVersion(
-          latestVersionResult.status === "fulfilled"
-            ? latestVersionResult.value["latest-version"]
-            : null,
-        )
         setConnectionState("ready")
       },
       showSuccess ? "Management dashboard loaded" : undefined,
@@ -537,6 +528,19 @@ function App() {
       },
       "Runtime settings saved",
     )
+  }
+
+  async function loadLatestVersion(
+    client: ReturnType<typeof createManagementClient>,
+  ) {
+    try {
+      const response = await client.getJson<{ "latest-version": string }>(
+        "/latest-version",
+      )
+      setLatestVersion(response["latest-version"])
+    } catch {
+      setLatestVersion(null)
+    }
   }
 
   async function saveConfigYaml() {
@@ -1152,7 +1156,11 @@ function App() {
                   <Button
                     size="sm"
                     onClick={() => void saveConfigYaml()}
-                    disabled={busyAction !== null || connectionState !== "ready"}
+                    disabled={
+                      busyAction !== null ||
+                      connectionState !== "ready" ||
+                      !configYamlAvailable
+                    }
                   >
                     Save YAML
                   </Button>
@@ -1165,12 +1173,18 @@ function App() {
                   <TabsTrigger value="json">JSON preview</TabsTrigger>
                 </TabsList>
                 <TabsContent value="yaml" className="pt-4">
-                  <Textarea
-                    value={configYaml}
-                    onChange={(event) => setConfigYaml(event.target.value)}
-                    className="min-h-96 font-mono text-xs"
-                    spellCheck={false}
-                  />
+                  {configYamlAvailable ? (
+                    <Textarea
+                      value={configYaml}
+                      onChange={(event) => setConfigYaml(event.target.value)}
+                      className="min-h-96 font-mono text-xs"
+                      spellCheck={false}
+                    />
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+                      Raw config.yaml editing is unavailable for this deployment mode.
+                    </div>
+                  )}
                 </TabsContent>
                 <TabsContent value="json" className="pt-4">
                   <ScrollArea className="h-96 rounded-lg border border-border/60 bg-background p-3">
