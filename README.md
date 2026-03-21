@@ -17,6 +17,8 @@ pnpm install
 pnpm dev
 ```
 
+Use Node 24.x for local development. The repo declares `pnpm@10.32.1` in `package.json`, so running through Corepack keeps CI and local installs aligned.
+
 By default the app reads `import.meta.env.VITE_MANAGEMENT_API_BASE_URL` on startup. You can also leave the backend URL blank in the UI to target the current origin when the frontend is reverse proxied by Cockpit.
 
 ## Build and preview
@@ -31,7 +33,7 @@ The build runs `tsc -b` before `vite build`, so type drift fails the build.
 
 ## Docker image
 
-`frontend/Dockerfile` builds the app with Node 22 and serves the compiled output from nginx.
+`frontend/Dockerfile` builds the app with Node 24 and serves the compiled output from nginx.
 
 Supported build args:
 
