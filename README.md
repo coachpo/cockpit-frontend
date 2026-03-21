@@ -1,73 +1,65 @@
-# React + TypeScript + Vite
+# Cockpit Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Cockpit Frontend is the React + Vite management console for the Cockpit backend. It talks to the backend management surface at `/v0/management`, sends the management key as `X-Management-Key`, and exposes the full dashboard from a single-page UI.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React 19 + TypeScript
+- Vite 8
+- pnpm 10
+- Tailwind CSS 4 (CSS-first config in `src/index.css`)
+- shadcn/radix-nova UI components under `src/components/ui/`
 
-## React Compiler
+## Development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm install
+pnpm dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+By default the app reads `import.meta.env.VITE_MANAGEMENT_API_BASE_URL` on startup. You can also leave the backend URL blank in the UI to target the current origin when the frontend is reverse proxied by Cockpit.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Build and preview
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm lint
+pnpm build
+pnpm preview
 ```
+
+The build runs `tsc -b` before `vite build`, so type drift fails the build.
+
+## Docker image
+
+`frontend/Dockerfile` builds the app with Node 22 and serves the compiled output from nginx.
+
+Supported build args:
+
+- `VITE_MANAGEMENT_API_BASE_URL`
+- `VITE_GIT_RUN_NUMBER`
+- `VITE_GIT_REVISION`
+
+`frontend/nginx.conf` keeps SPA routing alive with `try_files $uri $uri/ /index.html`.
+
+## Source map
+
+- `src/App.tsx` — canonical app shell and all management sections
+- `src/lib/management-api.ts` — typed backend client
+- `src/types/management.ts` — management request/response types and `MANAGEMENT_BASE_PATH`
+- `src/components/section-card.tsx` — section layout wrapper
+- `src/components/json-editor-card.tsx` — reusable JSON editor block
+- `src/components/ui/` — shadcn/radix-nova primitives
+- `src/index.css` — Tailwind v4 theme tokens, Geist font, dark mode
+
+## CI
+
+Frontend CI lives in `frontend/.github/workflows/ci.yml` and currently runs:
+
+1. `pnpm install --frozen-lockfile`
+2. `pnpm lint`
+3. `pnpm build`
+
+## Notes
+
+- The app currently has no router and no external state library; new dashboard sections usually extend `src/App.tsx` and the shared wrappers in `src/components/`.
+- `src/App.css` and `src/assets/` are leftover template artifacts and are not the primary styling path for the current dashboard.
