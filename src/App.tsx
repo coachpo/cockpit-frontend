@@ -44,6 +44,14 @@ import {
   ManagementRequestError,
   createManagementClient,
 } from "@/lib/management-api"
+import { isManagementActionDisabled } from "@/lib/management-access"
+import {
+  getInitialManagementBaseUrl,
+  getManagementBaseUrlSummary,
+  hasManagementBaseUrlOverride,
+  MANAGEMENT_BASE_URL_STORAGE_KEY,
+  normalizeManagementBaseUrl,
+} from "@/lib/management-origin"
 import type {
   ApiCallResponse,
   AuthFile,
@@ -53,10 +61,6 @@ import type {
   RuntimeSettings,
   StatusOk,
 } from "@/types/management"
-
-const STORAGE_KEYS = {
-  baseUrl: "cockpit.management.base-url",
-}
 
 const NAV_ITEMS = [
   { id: "access", label: "Access" },
@@ -93,6 +97,17 @@ const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = {
 
 function getStoredValue(key: string, fallback = "") {
   return window.localStorage.getItem(key) ?? fallback
+}
+
+function getStoredManagementBaseUrl() {
+  return getStoredValue(MANAGEMENT_BASE_URL_STORAGE_KEY)
+}
+
+function getInitialServerBaseUrl() {
+  return getInitialManagementBaseUrl({
+    isDev: import.meta.env.DEV,
+    storedBaseUrl: getStoredManagementBaseUrl(),
+  })
 }
 
 function getErrorMessage(error: unknown): string {
@@ -208,12 +223,7 @@ function SettingField({
 }
 
 function App() {
-  const [serverBaseUrl, setServerBaseUrl] = useState(() =>
-    getStoredValue(
-      STORAGE_KEYS.baseUrl,
-      import.meta.env.VITE_MANAGEMENT_API_BASE_URL ?? "",
-    ),
-  )
+  const [serverBaseUrl, setServerBaseUrl] = useState(getInitialServerBaseUrl)
   const [managementKey, setManagementKey] = useState("")
   const [connectionState, setConnectionState] = useState<
     "idle" | "loading" | "ready" | "error"
@@ -272,18 +282,19 @@ function App() {
     null,
   )
 
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEYS.baseUrl, serverBaseUrl)
-  }, [serverBaseUrl])
+  const normalizedServerBaseUrl = normalizeManagementBaseUrl(serverBaseUrl)
+  const hasServerBaseUrlOverride = hasManagementBaseUrlOverride(serverBaseUrl)
+  const accessActionDisabled = isManagementActionDisabled({
+    busyAction,
+    managementKey,
+  })
 
   useEffect(() => {
-    if (!managementKey.trim()) {
-      return
-    }
-
-    void loadDashboard(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    window.localStorage.setItem(
+      MANAGEMENT_BASE_URL_STORAGE_KEY,
+      normalizedServerBaseUrl,
+    )
+  }, [normalizedServerBaseUrl])
 
   const authFileOptions = useMemo(
     () =>
@@ -318,7 +329,7 @@ function App() {
   }
 
   async function loadDashboard(showSuccess: boolean) {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     setConnectionState("loading")
     void loadLatestVersion(client)
 
@@ -478,7 +489,7 @@ function App() {
   }
 
   async function saveRuntimeSettings() {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
 
     await withBusy(
       "save-runtime",
@@ -544,7 +555,7 @@ function App() {
   }
 
   async function saveConfigYaml() {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy(
       "save-config-yaml",
       async () => {
@@ -559,7 +570,7 @@ function App() {
   }
 
   async function saveApiKeys() {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy(
       "save-api-keys",
       async () => {
@@ -577,7 +588,7 @@ function App() {
     label: string,
     successMessage: string,
   ) {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy(
       action,
       async () => {
@@ -589,7 +600,7 @@ function App() {
   }
 
   async function refreshModelCatalog() {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy(
       "refresh-model-catalog",
       async () => {
@@ -604,7 +615,7 @@ function App() {
   }
 
   async function startCodexOAuth() {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy("start-codex-oauth", async () => {
       const response = await client.getJson<OAuthStartResponse>(
         "/codex-auth-url?is_webui=true",
@@ -673,7 +684,7 @@ function App() {
   }
 
   async function uploadAuthFile() {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     const trimmedName = uploadName.trim()
 
     await withBusy(
@@ -705,7 +716,7 @@ function App() {
   }
 
   async function saveAuthFileFields() {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
 
     await withBusy(
       "save-auth-file-fields",
@@ -727,7 +738,7 @@ function App() {
   }
 
   async function toggleAuthFile(file: AuthFile) {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy(
       `toggle-auth-file-${file.id}`,
       async () => {
@@ -745,7 +756,7 @@ function App() {
   }
 
   async function deleteAuthFile(file: AuthFile) {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy(
       `delete-auth-file-${file.id}`,
       async () => {
@@ -759,7 +770,7 @@ function App() {
   }
 
   async function downloadAuthFile(file: AuthFile) {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy(`download-auth-file-${file.id}`, async () => {
       const blob = await client.getBlob(
         `/auth-files/download?name=${encodeURIComponent(file.name)}`,
@@ -776,7 +787,7 @@ function App() {
   }
 
   async function loadAuthFileModels(file: AuthFile) {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy(
       `models-${file.id}`,
       async () => {
@@ -792,7 +803,7 @@ function App() {
   }
 
   async function runApiTool() {
-    const client = createManagementClient(serverBaseUrl, managementKey)
+    const client = createManagementClient(normalizedServerBaseUrl, managementKey)
     await withBusy(
       "run-api-tool",
       async () => {
@@ -838,9 +849,10 @@ function App() {
             ) : null}
           </div>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            Single-page WebUI for the full management API. Use a blank backend URL
-            when this frontend is reverse proxied with Cockpit, or point it at the
-            backend origin directly.
+            Single-page WebUI for the full management API. The default mode uses
+            the current origin, which works for local <code>start.sh</code>
+            development and reverse-proxied deployments. The only required input
+            here is the management key.
           </p>
           {feedback ? (
             <div
@@ -894,14 +906,14 @@ function App() {
                     variant="outline"
                     size="sm"
                     onClick={() => void loadDashboard(false)}
-                    disabled={busyAction !== null}
+                    disabled={accessActionDisabled}
                   >
                     Reload
                   </Button>
                   <Button
                     size="sm"
                     onClick={() => void loadDashboard(true)}
-                    disabled={busyAction !== null || !managementKey.trim()}
+                    disabled={accessActionDisabled}
                   >
                     Connect
                   </Button>
@@ -910,17 +922,6 @@ function App() {
             >
               <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
                 <div className="space-y-4">
-                  <SettingField
-                    label="Backend base URL"
-                    description="Leave blank to use the current origin. Use the backend origin when frontend and backend are deployed separately."
-                  >
-                    <Input
-                      value={serverBaseUrl}
-                      onChange={(event) => setServerBaseUrl(event.target.value)}
-                      placeholder="https://backend.example.com"
-                    />
-                  </SettingField>
-
                   <SettingField
                     label="Management key"
                     description="Sent as the X-Management-Key header for every request."
@@ -933,10 +934,38 @@ function App() {
                     />
                   </SettingField>
 
+                  <SettingField
+                    label="Backend URL override (optional)"
+                    description="Leave this blank for local start.sh and reverse-proxied deployments. Only set it when the frontend must reach a backend on another origin."
+                  >
+                    <div className="space-y-3">
+                      <div className="rounded-md border border-dashed border-border/60 px-3 py-2 text-sm text-muted-foreground">
+                        {hasServerBaseUrlOverride
+                          ? `Using override: ${normalizedServerBaseUrl}`
+                          : "Using the current origin. Local start.sh already proxies management traffic to the backend port, and the server reverse proxy keeps production same-origin."}
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <Input
+                          value={serverBaseUrl}
+                          onChange={(event) => setServerBaseUrl(event.target.value)}
+                          placeholder="https://backend.example.com"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setServerBaseUrl("")}
+                          disabled={!hasServerBaseUrlOverride}
+                        >
+                          Use current origin
+                        </Button>
+                      </div>
+                    </div>
+                  </SettingField>
+
                   <div className="flex flex-wrap gap-2">
                     <Button
                       onClick={() => void startCodexOAuth()}
-                      disabled={busyAction !== null || !managementKey.trim()}
+                      disabled={accessActionDisabled}
                     >
                       Start Codex OAuth
                     </Button>
@@ -970,7 +999,7 @@ function App() {
                     <div>State: {oauthStatus.state ?? "—"}</div>
                     <div>Error: {oauthStatus.error ?? "—"}</div>
                     <div>
-                      Base URL in use: {serverBaseUrl.trim() || "current origin"}
+                      Base URL in use: {getManagementBaseUrlSummary(serverBaseUrl)}
                     </div>
                   </div>
                 </div>
