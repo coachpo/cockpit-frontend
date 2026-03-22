@@ -1,5 +1,7 @@
 import { MANAGEMENT_BASE_PATH } from "@/types/management"
 
+import { normalizeManagementBaseUrl } from "@/lib/management-origin"
+
 export class ManagementRequestError extends Error {
   readonly status: number
   readonly details: string
@@ -16,13 +18,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/+$/, "")
-}
-
 function buildManagementUrl(baseUrl: string, path: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
-  return `${normalizeBaseUrl(baseUrl)}${MANAGEMENT_BASE_PATH}${normalizedPath}`
+  return `${normalizeManagementBaseUrl(baseUrl)}${MANAGEMENT_BASE_PATH}${normalizedPath}`
 }
 
 async function extractErrorDetails(response: Response): Promise<string> {
