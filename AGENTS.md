@@ -5,7 +5,7 @@
 **Branch:** main
 
 ## OVERVIEW
-Cockpit Frontend is a pnpm + Vite + React 19 management console for the backend management and provider surfaces. The app is currently a single-page shell built around one large `src/App.tsx` component, a small typed management client, base-URL helper utilities, and shadcn/radix-nova UI primitives.
+Cockpit Frontend is a pnpm + Vite + React 19 management console for the backend management and provider surfaces. The app is currently a single-page shell built around one large `src/App.tsx` component, a small typed management client that targets same-origin management routes, and shadcn/radix-nova UI primitives.
 
 ## HIERARCHY RULE
 Read `src/AGENTS.md` for source-tree rules. Root covers setup, build, and repo-level layout; child files handle code-shape details.
@@ -28,8 +28,7 @@ Read `src/AGENTS.md` for source-tree rules. Root covers setup, build, and repo-l
 | Task | Location | Notes |
 |------|----------|-------|
 | App shell and all management sections | `src/App.tsx` | canonical entrypoint; no router or external state library |
-| Backend management client | `src/lib/management-api.ts` | wraps `/v0/management`, adds `X-Management-Key`, and normalizes error payloads |
-| Management origin helpers | `src/lib/management-origin.ts` | current-origin default, localStorage key, and base-URL normalization |
+| Backend management client | `src/lib/management-api.ts` | wraps same-origin `/v0/management`, adds `X-Management-Key`, and normalizes error payloads |
 | Management action gating | `src/lib/management-access.ts` | central busy-state + management-key disable rule |
 | Shared management types | `src/types/management.ts` | `RuntimeSettings`, `AuthFile`, `ModelDefinition`, response shapes |
 | Reusable section wrappers | `src/components/section-card.tsx`, `src/components/json-editor-card.tsx` | preferred scaffolding for new dashboard sections |
@@ -50,9 +49,8 @@ pnpm preview
 
 ## REPO-WIDE CONVENTIONS
 - Use the `@/` alias for internal imports; it maps to `./src` in both Vite and TypeScript configs.
-- The frontend now defaults management requests to the current origin; keep backend URL overrides in the UI instead of introducing a deploy-time API base URL env.
+- The frontend targets same-origin management routes only; keep `/v0/management` available on the same origin instead of introducing a deploy-time API base URL env or UI override.
 - Keep backend calls in `src/lib/management-api.ts` instead of sprinkling raw `fetch` calls through UI components.
-- Keep origin/base-url behavior in `src/lib/management-origin.ts`; do not fork separate localStorage keys or normalization helpers.
 - Treat `src/components/ui/` as generated-style primitives and keep app-specific composition in `src/components/` or `src/App.tsx`.
 - Tailwind config is CSS-first in `src/index.css`; do not assume a `tailwind.config.*` file exists.
 - `src/App.css` and `src/assets/` are leftover template artifacts, not the canonical styling or asset path for the current dashboard.

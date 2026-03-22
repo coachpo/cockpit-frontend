@@ -8,8 +8,7 @@ Frontend source tree for the Cockpit management console. `App.tsx` is the canoni
 ## WHERE TO LOOK
 - `App.tsx`: `NAV_ITEMS`, the Access / Runtime / Configuration / API Keys / Codex Keys / OpenAI Compat / OAuth Models / Auth Files / API Tool sections, `withBusy`, and OAuth flow.
 - `main.tsx`: React mount only; keep it thin.
-- `lib/management-api.ts`: typed request helper and `ManagementRequestError`.
-- `lib/management-origin.ts`: management base-url defaulting, localStorage key, and normalization helpers.
+- `lib/management-api.ts`: typed same-origin request helper and `ManagementRequestError`.
 - `lib/management-access.ts`: shared disable rule for busy or missing-key management actions.
 - `types/management.ts`: shared request and response contracts plus `MANAGEMENT_BASE_PATH`.
 - `components/section-card.tsx`: standard wrapper for scroll-linked dashboard sections.
@@ -20,7 +19,7 @@ Frontend source tree for the Cockpit management console. `App.tsx` is the canoni
 ## LOCAL CONVENTIONS
 - Add new dashboard sections by extending `NAV_ITEMS` and rendering a `SectionCard` or `JsonEditorCard` in `App.tsx`.
 - Keep management API paths centralized through `createManagementClient`; do not add parallel raw `fetch` wrappers.
-- Keep management base-url storage and normalization centralized through `management-origin.ts`.
+- Keep management requests same-origin through `createManagementClient`; do not reintroduce per-browser base-url storage or override helpers.
 - Keep new shared contracts in `types/management.ts` before introducing local inline type copies.
 - Use `@/` imports everywhere under `src/`.
 - Keep app-specific composition in `components/`; treat `components/ui/` as reusable primitives.

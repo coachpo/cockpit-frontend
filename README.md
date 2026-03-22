@@ -19,7 +19,7 @@ pnpm dev
 
 Use Node 24.x for local development. The repo declares `pnpm@10.32.1` in `package.json`, so running through Corepack keeps CI and local installs aligned.
 
-By default the app targets the current origin on startup. If you need to point the UI at a different backend, override the backend URL in the UI directly.
+By default the app targets the current origin on startup. Cross-origin backend overrides are no longer exposed in the UI, so local and deployed setups are expected to proxy `/v0/management` on the same origin.
 
 ## Build and preview
 
@@ -64,5 +64,5 @@ Frontend CI lives in `frontend/.github/workflows/ci.yml` and currently runs:
 ## Notes
 
 - The app currently has no router and no external state library; new dashboard sections usually extend `src/App.tsx` and the shared wrappers in `src/components/`.
-- `pnpm test` runs the Vitest coverage for frontend-only helpers such as management-origin behavior.
+- `pnpm test` runs the Vitest coverage for frontend-only helpers such as the management client request behavior.
 - `src/App.css` and `src/assets/` are leftover template artifacts and are not the primary styling path for the current dashboard.

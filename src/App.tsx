@@ -8,6 +8,7 @@ import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Separator } from "@/components/ui/separator"
 import {
   Select,
   SelectContent,
@@ -127,6 +129,145 @@ function formatDate(value?: string): string {
 
 function sleep(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+function toTitleLabel(value?: string): string {
+  if (!value) {
+    return "—"
+  }
+
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ")
+}
+
+function formatUsageTimestamp(value?: string): string {
+  if (!value) {
+    return "—"
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed)
+}
+
+function getAuthFileTitle(file: AuthFile): string {
+  return file.account ?? file.email ?? file.label ?? file.name
+}
+
+function getAuthFilePlan(file: AuthFile): string {
+  return toTitleLabel(file.id_token?.plan_type ?? file.account_type)
+}
+
+function getAuthFileSubscription(file: AuthFile): string | null {
+  const subscription = file.id_token?.subscription
+  return typeof subscription === "string" && subscription.trim() !== ""
+    ? toTitleLabel(subscription)
+    : null
+}
+
+function getUsagePercent(value: unknown): number | null {
+  const numericValue =
+    typeof value === "string" && value.trim() !== ""
+      ? Number(value)
+      : typeof value === "number"
+        ? value
+        : Number.NaN
+
+  if (Number.isNaN(numericValue)) {
+    return null
+  }
+
+  const percent = numericValue <= 1 ? numericValue * 100 : numericValue
+  return Math.max(0, Math.min(100, percent))
+}
+
+function getAuthFileUsageRows(file: AuthFile): Array<{
+  label: string
+  percent: number | null
+  value?: string
+  resetAt?: string
+}> {
+  const usage = file.usage
+  if (!usage || typeof usage !== "object") {
+    return []
+  }
+
+  const limits = Array.isArray((usage as { limits?: unknown[] }).limits)
+    ? (usage as { limits: Array<Record<string, unknown>> }).limits
+    : []
+
+  if (limits.length > 0) {
+    return limits.slice(0, 3).map((limit, index) => ({
+      label:
+        (typeof limit.label === "string" && limit.label) ||
+        (typeof limit.name === "string" && limit.name) ||
+        (typeof limit.limit_name === "string" && limit.limit_name) ||
+        `Usage ${index + 1}`,
+      percent: getUsagePercent(limit.percent ?? limit.percentage ?? limit.used_ratio),
+      value:
+        typeof limit.value === "string"
+          ? limit.value
+          : typeof limit.used === "string"
+            ? limit.used
+            : undefined,
+      resetAt:
+        (typeof limit.reset_at === "string" && limit.reset_at) ||
+        (typeof limit.next_reset_at === "string" && limit.next_reset_at) ||
+        undefined,
+    }))
+  }
+
+  return Object.entries(usage)
+    .filter(([, value]) => value != null)
+    .slice(0, 3)
+    .map(([label, value]) => {
+      if (typeof value === "object" && value !== null) {
+        const entry = value as Record<string, unknown>
+        return {
+          label: toTitleLabel(label),
+          percent: getUsagePercent(entry.percent ?? entry.percentage ?? entry.used_ratio),
+          value:
+            typeof entry.value === "string"
+              ? entry.value
+              : typeof entry.used === "string"
+                ? entry.used
+                : undefined,
+          resetAt:
+            (typeof entry.reset_at === "string" && entry.reset_at) ||
+            (typeof entry.next_reset_at === "string" && entry.next_reset_at) ||
+            undefined,
+        }
+      }
+
+      return {
+        label: toTitleLabel(label),
+        percent: getUsagePercent(value),
+        value: typeof value === "string" ? value : String(value),
+      }
+    })
+}
+
+function UsageBar({ percent }: { percent: number | null }) {
+  return (
+    <div className="h-2 rounded-full bg-muted">
+      <div
+        className="h-full rounded-full bg-primary transition-[width]"
+        style={{ width: `${percent ?? 0}%`, opacity: percent === null ? 0 : 1 }}
+      />
+    </div>
+  )
 }
 
 function StatusPill({
@@ -948,77 +1089,123 @@ function App() {
                 </div>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {authFiles.map((file) => (
-                    <Card key={file.id} className="flex flex-col">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="space-y-1.5">
-                            <CardTitle className="text-base font-medium break-all">
-                              {file.name}
-                            </CardTitle>
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                              <Badge variant="secondary" className="rounded-sm font-normal">
-                                {file.provider ?? file.type ?? "unknown"}
-                              </Badge>
-                              <StatusPill
-                                label={file.disabled ? "disabled" : file.status ?? "active"}
-                                tone={file.disabled ? "warning" : "success"}
-                              />
-                              {file.email ? <span>{file.email}</span> : null}
-                            </div>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="flex-1 pb-3 text-sm">
-                        <div className="space-y-4">
-                          {(file.id_token?.plan_type || file.id_token?.subscription) ? (
-                            <div className="space-y-1.5">
-                              <div className="text-xs font-medium text-muted-foreground">Plan</div>
-                              <div className="flex flex-wrap gap-2">
-                                {file.id_token.plan_type ? (
-                                  <Badge variant="outline" className="font-normal">{String(file.id_token.plan_type)}</Badge>
-                                ) : null}
-                                {file.id_token.subscription ? (
-                                  <Badge variant="outline" className="font-normal">{String(file.id_token.subscription)}</Badge>
-                                ) : null}
-                              </div>
-                            </div>
-                          ) : null}
+                  {authFiles.map((file) => {
+                    const usageRows = getAuthFileUsageRows(file)
+                    const subscriptionLabel = getAuthFileSubscription(file)
 
-                          <div className="space-y-1.5">
-                            <div className="text-xs font-medium text-muted-foreground">Usage</div>
-                            {file.usage && Object.keys(file.usage).length > 0 ? (
-                              <div className="grid grid-cols-2 gap-2 rounded-md border border-border/50 bg-muted/30 p-2 text-xs">
-                                {Object.entries(file.usage).map(([key, value]) => (
-                                  <div key={key} className="flex flex-col">
-                                    <span className="text-muted-foreground">{key}</span>
-                                    <span className="font-medium truncate" title={String(value)}>{String(value)}</span>
-                                  </div>
-                                ))}
+                    return (
+                      <Card key={file.id} size="sm" className="border border-border/60 shadow-sm">
+                        <CardHeader className="space-y-3">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="space-y-2">
+                              <Badge variant="secondary" className="w-fit rounded-sm font-normal">
+                                {toTitleLabel(file.provider ?? file.type ?? "unknown")}
+                              </Badge>
+                              <div className="space-y-1">
+                                <CardTitle className="text-base break-all">
+                                  {getAuthFileTitle(file)}
+                                </CardTitle>
+                                <CardDescription>{file.name}</CardDescription>
                               </div>
-                            ) : (
-                              <div className="text-xs text-muted-foreground italic">No usage data reported</div>
-                            )}
+                            </div>
+                            <StatusPill
+                              label={file.disabled ? "disabled" : file.status ?? "active"}
+                              tone={file.disabled ? "warning" : file.unavailable ? "destructive" : "success"}
+                            />
                           </div>
-                          
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                            {file.priority ? <div>Priority: {file.priority}</div> : null}
-                            {file.source ? <div>Source: {file.source}</div> : null}
-                            <div className="col-span-2">Updated: {formatDate(file.updated_at ?? file.modtime)}</div>
+                        </CardHeader>
+
+                        <Separator className="bg-border/60" />
+
+                        <CardContent className="space-y-4 pt-3 text-sm">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-muted-foreground">Plan</span>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <span className="font-medium">{getAuthFilePlan(file)}</span>
+                              {subscriptionLabel ? (
+                                <Badge variant="outline" className="font-normal">
+                                  {subscriptionLabel}
+                                </Badge>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                      </CardContent>
-                      <div className="p-4 pt-0 mt-auto">
-                        <div className="flex flex-wrap gap-2">
-                          <Button variant="outline" size="xs" onClick={() => void loadAuthFileModels(file)} disabled={busyAction !== null}>Models</Button>
-                          <Button variant="outline" size="xs" onClick={() => void downloadAuthFile(file)} disabled={busyAction !== null}>Download</Button>
-                          <Button variant="outline" size="xs" onClick={() => openAuthFieldEditor(file)} disabled={busyAction !== null}>Edit</Button>
-                          <Button variant="outline" size="xs" onClick={() => void toggleAuthFile(file)} disabled={busyAction !== null}>{file.disabled ? "Enable" : "Disable"}</Button>
-                          <Button variant="destructive" size="xs" onClick={() => void deleteAuthFile(file)} disabled={busyAction !== null}>Delete</Button>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
+
+                          {usageRows.length === 0 ? (
+                            <div className="rounded-md border border-dashed border-border/60 px-3 py-2 text-sm text-muted-foreground">
+                              No usage data reported.
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {usageRows.map((row) => (
+                                <div key={row.label} className="space-y-2">
+                                  <div className="flex items-center justify-between gap-3 text-sm">
+                                    <span className="text-muted-foreground">{row.label}</span>
+                                    <span className="font-medium">
+                                      {row.percent === null ? row.value ?? "—" : `${Math.round(row.percent)}%`}
+                                      {row.resetAt ? (
+                                        <span className="text-muted-foreground"> {formatUsageTimestamp(row.resetAt)}</span>
+                                      ) : null}
+                                    </span>
+                                  </div>
+                                  {row.percent === null ? null : <UsageBar percent={row.percent} />}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                            <div>Source: {file.source ?? "—"}</div>
+                            <div>Priority: {file.priority ?? "—"}</div>
+                            <div>Updated: {formatDate(file.updated_at ?? file.modtime)}</div>
+                            <div>Account: {file.account ?? file.email ?? "—"}</div>
+                          </div>
+                        </CardContent>
+
+                        <CardFooter className="mt-auto flex flex-wrap gap-2 border-t border-border/60 bg-muted/30">
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            onClick={() => void loadAuthFileModels(file)}
+                            disabled={busyAction !== null}
+                          >
+                            Models
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            onClick={() => void downloadAuthFile(file)}
+                            disabled={busyAction !== null}
+                          >
+                            Download
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            onClick={() => openAuthFieldEditor(file)}
+                            disabled={busyAction !== null}
+                          >
+                            Edit fields
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            onClick={() => void toggleAuthFile(file)}
+                            disabled={busyAction !== null}
+                          >
+                            {file.disabled ? "Enable" : "Disable"}
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="xs"
+                            onClick={() => void deleteAuthFile(file)}
+                            disabled={busyAction !== null}
+                          >
+                            Delete
+                          </Button>
+                        </CardFooter>
+                      </Card>
+                    )
+                  })}
                 </div>
               )}
             </SectionCard>
