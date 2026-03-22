@@ -10,7 +10,7 @@ describe("createManagementClient", () => {
     vi.unstubAllGlobals()
   })
 
-  it("uses a same-origin relative management path when base URL is blank", async () => {
+  it("uses a same-origin relative management path", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ status: "ok" }), {
         status: 200,
@@ -19,7 +19,7 @@ describe("createManagementClient", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await createManagementClient("", "secret").getJson("/status")
+    await createManagementClient("secret").getJson("/status")
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/v0/management/status",
@@ -29,7 +29,7 @@ describe("createManagementClient", () => {
     )
   })
 
-  it("normalizes overrides before building management request URLs", async () => {
+  it("sends the management key as a Bearer token", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ status: "ok" }), {
         status: 200,
@@ -38,15 +38,12 @@ describe("createManagementClient", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await createManagementClient(" https://backend.example.com/// ", "secret").getJson(
-      "/status",
-    )
+    await createManagementClient("my-secret-key").getJson("/status")
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://backend.example.com/v0/management/status",
-      expect.objectContaining({
-        headers: expect.any(Headers),
-      }),
-    )
+    const callArgs = fetchMock.mock.calls[0]
+    expect(callArgs).toBeDefined()
+    const requestInit = callArgs![1] as RequestInit
+    const headers = requestInit.headers as Headers
+    expect(headers.get("Authorization")).toBe("Bearer my-secret-key")
   })
 })

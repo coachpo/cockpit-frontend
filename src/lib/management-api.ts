@@ -1,7 +1,5 @@
 import { MANAGEMENT_BASE_PATH } from "@/types/management"
 
-import { normalizeManagementBaseUrl } from "@/lib/management-origin"
-
 export class ManagementRequestError extends Error {
   readonly status: number
   readonly details: string
@@ -18,9 +16,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function buildManagementUrl(baseUrl: string, path: string): string {
+function buildManagementUrl(path: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
-  return `${normalizeManagementBaseUrl(baseUrl)}${MANAGEMENT_BASE_PATH}${normalizedPath}`
+  return `${MANAGEMENT_BASE_PATH}${normalizedPath}`
 }
 
 async function extractErrorDetails(response: Response): Promise<string> {
@@ -49,18 +47,17 @@ function buildHeaders(
   }
 
   const headers = new Headers(extraHeaders)
-  headers.set("X-Management-Key", key)
+  headers.set("Authorization", `Bearer ${key}`)
   return headers
 }
 
 async function request<T>(
-  baseUrl: string,
   managementKey: string,
   path: string,
   init?: RequestInit,
   parser?: (response: Response) => Promise<T>,
 ): Promise<T> {
-  const response = await fetch(buildManagementUrl(baseUrl, path), {
+  const response = await fetch(buildManagementUrl(path), {
     ...init,
     headers: buildHeaders(managementKey, init?.headers),
   })
@@ -81,22 +78,22 @@ async function request<T>(
   return (await response.json()) as T
 }
 
-export function createManagementClient(baseUrl: string, managementKey: string) {
+export function createManagementClient(managementKey: string) {
   return {
     getJson<T>(path: string) {
-      return request<T>(baseUrl, managementKey, path)
+      return request<T>(managementKey, path)
     },
 
     getText(path: string) {
-      return request<string>(baseUrl, managementKey, path, undefined, (response) => response.text())
+      return request<string>(managementKey, path, undefined, (response) => response.text())
     },
 
     getBlob(path: string) {
-      return request<Blob>(baseUrl, managementKey, path, undefined, (response) => response.blob())
+      return request<Blob>(managementKey, path, undefined, (response) => response.blob())
     },
 
     postJson<T>(path: string, body: unknown) {
-      return request<T>(baseUrl, managementKey, path, {
+      return request<T>(managementKey, path, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -106,7 +103,7 @@ export function createManagementClient(baseUrl: string, managementKey: string) {
     },
 
     putJson<T>(path: string, body: unknown) {
-      return request<T>(baseUrl, managementKey, path, {
+      return request<T>(managementKey, path, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -116,7 +113,7 @@ export function createManagementClient(baseUrl: string, managementKey: string) {
     },
 
     patchJson<T>(path: string, body: unknown) {
-      return request<T>(baseUrl, managementKey, path, {
+      return request<T>(managementKey, path, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -125,18 +122,8 @@ export function createManagementClient(baseUrl: string, managementKey: string) {
       })
     },
 
-    putYaml<T>(path: string, body: string) {
-      return request<T>(baseUrl, managementKey, path, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/yaml",
-        },
-        body,
-      })
-    },
-
     delete<T>(path: string) {
-      return request<T>(baseUrl, managementKey, path, {
+      return request<T>(managementKey, path, {
         method: "DELETE",
       })
     },

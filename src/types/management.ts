@@ -4,16 +4,11 @@ export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 
 export interface RuntimeSettings {
-  debug: boolean
-  requestLog: boolean
   wsAuth: boolean
   requestRetry: number
   maxRetryInterval: number
-  forceModelPrefix: boolean
-  proxyUrl: string
   routingStrategy: string
   switchProject: boolean
-  switchPreviewModel: boolean
 }
 
 export interface StatusOk {
@@ -44,6 +39,12 @@ export interface AuthFile {
   note?: string
   account_type?: string
   account?: string
+  id_token?: {
+    plan_type?: string
+    subscription?: string
+    [key: string]: unknown
+  }
+  usage?: Record<string, unknown>
 }
 
 export interface ModelDefinition {
@@ -62,10 +63,4 @@ export interface OAuthStartResponse {
 export interface OAuthStatusResponse {
   status: string
   error?: string
-}
-
-export interface ApiCallResponse {
-  status_code: number
-  header: Record<string, string[]>
-  body: string
 }
