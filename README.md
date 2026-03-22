@@ -19,11 +19,12 @@ pnpm dev
 
 Use Node 24.x for local development. The repo declares `pnpm@10.32.1` in `package.json`, so running through Corepack keeps CI and local installs aligned.
 
-By default the app reads `import.meta.env.VITE_MANAGEMENT_API_BASE_URL` on startup. You can also leave the backend URL blank in the UI to target the current origin when the frontend is reverse proxied by Cockpit.
+By default the app targets the current origin on startup. If you need to point the UI at a different backend, override the backend URL in the UI directly.
 
 ## Build and preview
 
 ```bash
+pnpm test
 pnpm lint
 pnpm build
 pnpm preview
@@ -37,7 +38,6 @@ The build runs `tsc -b` before `vite build`, so type drift fails the build.
 
 Supported build args:
 
-- `VITE_MANAGEMENT_API_BASE_URL`
 - `VITE_GIT_RUN_NUMBER`
 - `VITE_GIT_REVISION`
 
@@ -64,4 +64,5 @@ Frontend CI lives in `frontend/.github/workflows/ci.yml` and currently runs:
 ## Notes
 
 - The app currently has no router and no external state library; new dashboard sections usually extend `src/App.tsx` and the shared wrappers in `src/components/`.
+- `pnpm test` runs the Vitest coverage for frontend-only helpers such as management-origin behavior.
 - `src/App.css` and `src/assets/` are leftover template artifacts and are not the primary styling path for the current dashboard.

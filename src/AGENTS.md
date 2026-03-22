@@ -30,6 +30,7 @@ Frontend source tree for the Cockpit management console. `App.tsx` is the canoni
 
 ## CHECKS
 ```bash
+pnpm test
 pnpm lint
 pnpm build
 ```

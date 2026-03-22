@@ -40,6 +40,7 @@ Read `src/AGENTS.md` for source-tree rules. Root covers setup, build, and repo-l
 ```bash
 pnpm install
 pnpm dev
+pnpm test
 pnpm lint
 pnpm build
 pnpm preview
@@ -47,12 +48,12 @@ pnpm preview
 
 ## REPO-WIDE CONVENTIONS
 - Use the `@/` alias for internal imports; it maps to `./src` in both Vite and TypeScript configs.
-- `VITE_MANAGEMENT_API_BASE_URL` is the only frontend env var currently consumed by app code; the UI can still override the base URL interactively.
+- The frontend now defaults management requests to the current origin; keep backend URL overrides in the UI instead of introducing a deploy-time API base URL env.
 - Keep backend calls in `src/lib/management-api.ts` instead of sprinkling raw `fetch` calls through UI components.
 - Treat `src/components/ui/` as generated-style primitives and keep app-specific composition in `src/components/` or `src/App.tsx`.
 - Tailwind config is CSS-first in `src/index.css`; do not assume a `tailwind.config.*` file exists.
 - `src/App.css` and `src/assets/` are leftover template artifacts, not the canonical styling or asset path for the current dashboard.
 
 ## NOTES
-- Frontend CI currently runs install, lint, and build only; there is no checked-in frontend test suite yet.
-- Docker builds accept `VITE_MANAGEMENT_API_BASE_URL`, `VITE_GIT_RUN_NUMBER`, and `VITE_GIT_REVISION`, then serve the built app from nginx.
+- Frontend CI currently runs install, lint, and build only; checked-in frontend unit tests run through `pnpm test`.
+- Docker builds accept `VITE_GIT_RUN_NUMBER` and `VITE_GIT_REVISION`, then serve the built app from nginx.
