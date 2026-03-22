@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { getAuthFileStatusLabel } from "@/lib/auth-file-display"
 import {
   Table,
   TableBody,
@@ -1109,7 +1110,7 @@ function App() {
                               </div>
                             </div>
                             <StatusPill
-                              label={file.disabled ? "disabled" : file.status ?? "active"}
+                              label={getAuthFileStatusLabel(file)}
                               tone={file.disabled ? "warning" : file.unavailable ? "destructive" : "success"}
                             />
                           </div>
