@@ -3,6 +3,14 @@ export const MANAGEMENT_BASE_PATH = "/v0/management"
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 
+export interface ManagementApiCallRequest {
+  authIndex?: string
+  method: string
+  url: string
+  header?: Record<string, string>
+  body?: JsonValue
+}
+
 export interface RuntimeSettings {
   wsAuth: boolean
   requestRetry: number
@@ -45,6 +53,7 @@ export interface AuthFile {
     [key: string]: unknown
   }
   usage?: Record<string, unknown>
+  usage_probe?: ManagementApiCallRequest
 }
 
 export interface ModelDefinition {

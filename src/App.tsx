@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useRef, useState, type ReactNode } from "react"
 
 import { JsonEditorCard } from "@/components/json-editor-card"
 import { SectionCard } from "@/components/section-card"
@@ -32,6 +32,10 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { getAuthFileStatusLabel } from "@/lib/auth-file-display"
+import {
+  getAuthFileUsageProbeRequest,
+  mergeAuthFileUsageResponse,
+} from "@/lib/auth-file-usage"
 import {
   Table,
   TableBody,
@@ -333,6 +337,7 @@ function App() {
   const [apiKeysText, setApiKeysText] = useState("")
   const [codexKeysText, setCodexKeysText] = useState("[]")
   const [authFiles, setAuthFiles] = useState<AuthFile[]>([])
+  const authFilesLoadIdRef = useRef(0)
 
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
   const [uploadName, setUploadName] = useState("")
@@ -382,7 +387,40 @@ function App() {
     }
   }
 
+  async function enrichAuthFilesUsage(
+    client: ReturnType<typeof createManagementClient>,
+    files: AuthFile[],
+    loadId: number,
+  ) {
+    const enrichedFiles = await Promise.allSettled(
+      files.map(async (file) => {
+        const usageProbe = getAuthFileUsageProbeRequest(file)
+        if (!usageProbe) {
+          return file
+        }
+
+        try {
+          const usageResponse = await client.postJson<unknown>("/api-call", usageProbe)
+          return mergeAuthFileUsageResponse(file, usageResponse)
+        } catch {
+          return file
+        }
+      }),
+    )
+
+    if (authFilesLoadIdRef.current !== loadId) {
+      return
+    }
+
+    setAuthFiles(
+      enrichedFiles.map((result, index) =>
+        result.status === "fulfilled" ? result.value : files[index],
+      ),
+    )
+  }
+
   async function loadDashboard(showSuccess: boolean) {
+    const loadId = ++authFilesLoadIdRef.current
     const client = createManagementClient(managementKey)
     setConnectionState("loading")
 
@@ -436,6 +474,9 @@ function App() {
         if (authFilesResult.status === "rejected") {
           throw authFilesResult.reason
         }
+
+        const baseAuthFiles = authFilesResult.value.files
+
         setRuntimeSettings({
           wsAuth: wsAuthResult.value["ws-auth"],
           requestRetry: requestRetryResult.value["request-retry"],
@@ -447,8 +488,10 @@ function App() {
         setCodexKeysText(
           prettyJson(toUnknownArray(codexKeysResult.value["codex-api-key"])),
         )
-        setAuthFiles(authFilesResult.value.files)
+        setAuthFiles(baseAuthFiles)
         setConnectionState("ready")
+
+        void enrichAuthFilesUsage(client, baseAuthFiles, loadId)
       },
       showSuccess ? "Management dashboard loaded" : undefined,
     ).catch(() => {
