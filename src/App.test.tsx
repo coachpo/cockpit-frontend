@@ -185,32 +185,6 @@ describe("App", () => {
               },
             ],
           })
-        case "/v0/management/model-definitions/codex":
-          return jsonResponse({
-            channel: "codex",
-            models: [
-              {
-                id: "gpt-5",
-                display_name: "GPT-5",
-                version: "2026.03",
-                description: "Flagship reasoning model",
-                context_length: 400000,
-                max_completion_tokens: 128000,
-                supported_parameters: ["temperature", "reasoning_effort"],
-                thinking: { levels: ["low", "medium", "high"] },
-              },
-              {
-                id: "gpt-5-codex-mini",
-                display_name: "GPT-5 Codex Mini",
-                version: "2026.03",
-                description: "Fast coding assistant",
-                context_length: 256000,
-                max_completion_tokens: 64000,
-                supported_parameters: ["temperature"],
-                thinking: { levels: ["low", "max"] },
-              },
-            ],
-          })
         case "/v0/management/auth-files":
           return jsonResponse({
             files: [
@@ -376,7 +350,7 @@ describe("App", () => {
     vi.unstubAllGlobals()
   })
 
-  it("auto-loads the dashboard and renders the codex model catalog as metadata-rich cards", async () => {
+  it("auto-loads the dashboard without requesting or rendering the standalone model catalog", async () => {
     await act(async () => {
       root.render(<App />)
       await flushEffects()
@@ -384,21 +358,16 @@ describe("App", () => {
 
     const requestedUrls = getRequestedUrls()
     expect(requestedUrls).toContain("/v0/management/ws-auth")
-    expect(requestedUrls).toContain("/v0/management/model-definitions/codex")
     expect(requestedUrls).toContain("/v0/management/auth-files")
+    expect(requestedUrls).not.toContain("/v0/management/model-definitions/codex")
 
     const pageText = container.textContent ?? ""
-    expect(pageText).toContain("Model Catalog")
-    expect(pageText).toContain("GPT-5")
-    expect(pageText).toContain("GPT-5 Codex Mini")
-    expect(pageText).toContain("temperature")
-    expect(pageText).toContain("reasoning_effort")
-    expect(pageText).toContain("low")
-    expect(pageText).toContain("max")
-    expect(pageText).not.toContain("Load catalog")
+    expect(pageText).toContain("Codex Keys")
+    expect(pageText).toContain("Auth Files")
+    expect(pageText).not.toContain("Model Catalog")
+    expect(pageText).not.toContain("Full catalog enabled")
 
-    const modelCatalogSection = container.querySelector("#model-catalog")
-    expect(modelCatalogSection?.querySelector("textarea")).toBeNull()
+    expect(container.querySelector("#model-catalog")).toBeNull()
   })
 
   it("shows redacted Codex Keys examples for opencode and codex_cli_rs headers", async () => {
@@ -417,7 +386,7 @@ describe("App", () => {
     expect(codexKeysSection?.textContent).toContain('codex_cli_rs/0.116.0 (Mac OS 26.3.1; arm64) Apple_Terminal/466')
   })
 
-  it("places API Keys on its own full-width row before a stacked full-width model catalog", async () => {
+  it("renders API Keys without a standalone model catalog section beside it", async () => {
     await act(async () => {
       root.render(<App />)
       await flushEffects()
@@ -426,8 +395,8 @@ describe("App", () => {
     const apiKeysSection = container.querySelector("#api-keys")
     const modelCatalogSection = container.querySelector("#model-catalog")
 
-    if (!apiKeysSection || !modelCatalogSection) {
-      throw new Error("Missing API Keys or Model Catalog section")
+    if (!apiKeysSection) {
+      throw new Error("Missing API Keys section")
     }
 
     const sharedLayout = apiKeysSection.parentElement
@@ -435,15 +404,9 @@ describe("App", () => {
       .map((element) => (element instanceof HTMLElement ? element.id : ""))
       .filter(Boolean)
 
-    expect(sharedLayout).toBe(modelCatalogSection.parentElement)
-    expect(siblingSectionIds).toEqual(["api-keys", "model-catalog"])
-
-    const firstModelCard = modelCatalogSection.querySelector("article")
-    const modelList = firstModelCard?.parentElement
-
-    expect(firstModelCard).not.toBeNull()
-    expect(Array.from(modelList?.children ?? [])).toHaveLength(2)
-    expect(Array.from(modelList?.children ?? []).every((child) => child.tagName === "ARTICLE")).toBe(true)
+    expect(modelCatalogSection).toBeNull()
+    expect(siblingSectionIds).toEqual(["api-keys"])
+    expect(apiKeysSection.querySelector("textarea")).not.toBeNull()
   })
 
   it("keeps OAuth actions but removes the idle badge and explanatory copy", async () => {
@@ -676,17 +639,15 @@ describe("App", () => {
     const codexKeysButton = findButton(container, "Codex Keys")
     const runtimeButton = findButton(container, "Runtime Settings")
     const codexSection = container.querySelector("#codex-keys")
-    const modelCatalogSection = container.querySelector("#model-catalog")
     const apiKeysSection = container.querySelector("#api-keys")
     const runtimeSection = container.querySelector("#runtime")
     const authFilesSection = container.querySelector("#auth-files")
 
-    if (!codexSection || !modelCatalogSection || !apiKeysSection || !runtimeSection || !authFilesSection) {
+    if (!codexSection || !apiKeysSection || !runtimeSection || !authFilesSection) {
       throw new Error("Missing dashboard sections for scroll test")
     }
 
     setSectionTop(codexSection, -920)
-    setSectionTop(modelCatalogSection, -420)
     setSectionTop(apiKeysSection, -160)
     setSectionTop(runtimeSection, 88)
     setSectionTop(authFilesSection, 820)
@@ -703,22 +664,23 @@ describe("App", () => {
     expect(codexKeysButton.getAttribute("aria-current")).toBeNull()
   })
 
-  it("switches from API Keys to Model Catalog as the stacked sections scroll past the anchor", async () => {
+  it("switches from API Keys to Runtime as the next section scrolls past the anchor", async () => {
     await act(async () => {
       root.render(<App />)
       await flushEffects()
     })
 
     const apiKeysButton = findButton(container, "API Keys")
-    const modelCatalogButton = findButton(container, "Model Catalog")
+    const runtimeButton = findButton(container, "Runtime Settings")
     const codexSection = container.querySelector("#codex-keys")
-    const modelCatalogSection = container.querySelector("#model-catalog")
     const apiKeysSection = container.querySelector("#api-keys")
     const runtimeSection = container.querySelector("#runtime")
     const authFilesSection = container.querySelector("#auth-files")
 
-    if (!codexSection || !modelCatalogSection || !apiKeysSection || !runtimeSection || !authFilesSection) {
-      throw new Error("Missing dashboard sections for stacked-row selector test")
+    expect(container.querySelector("#model-catalog")).toBeNull()
+
+    if (!codexSection || !apiKeysSection || !runtimeSection || !authFilesSection) {
+      throw new Error("Missing dashboard sections for selector test")
     }
 
     await act(async () => {
@@ -730,16 +692,15 @@ describe("App", () => {
 
     setSectionTop(codexSection, -920)
     setSectionTop(apiKeysSection, -220)
-    setSectionTop(modelCatalogSection, 32)
-    setSectionTop(runtimeSection, 540)
-    setSectionTop(authFilesSection, 940)
+    setSectionTop(runtimeSection, 32)
+    setSectionTop(authFilesSection, 540)
 
     await act(async () => {
       window.dispatchEvent(new Event("scroll"))
       await flushEffects()
     })
 
-    expect(modelCatalogButton.getAttribute("aria-current")).toBe("page")
+    expect(runtimeButton.getAttribute("aria-current")).toBe("page")
     expect(apiKeysButton.getAttribute("aria-current")).toBeNull()
   })
 
@@ -752,12 +713,11 @@ describe("App", () => {
     const runtimeButton = findButton(container, "Runtime Settings")
     const authFilesButton = findButton(container, "Auth Files")
     const codexSection = container.querySelector("#codex-keys")
-    const modelCatalogSection = container.querySelector("#model-catalog")
     const apiKeysSection = container.querySelector("#api-keys")
     const runtimeSection = container.querySelector("#runtime")
     const authFilesSection = container.querySelector("#auth-files")
 
-    if (!codexSection || !modelCatalogSection || !apiKeysSection || !runtimeSection || !authFilesSection) {
+    if (!codexSection || !apiKeysSection || !runtimeSection || !authFilesSection) {
       throw new Error("Missing dashboard sections for bottom-of-page scroll test")
     }
 
@@ -768,7 +728,6 @@ describe("App", () => {
     })
 
     setSectionTop(codexSection, -1200)
-    setSectionTop(modelCatalogSection, -620)
     setSectionTop(apiKeysSection, -260)
     setSectionTop(runtimeSection, 55)
     setSectionTop(authFilesSection, 582)

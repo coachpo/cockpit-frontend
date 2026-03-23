@@ -4,7 +4,6 @@ import {
   Settings2,
   Key,
   Database,
-  BookOpen,
   RefreshCw,
   Save,
   ExternalLink,
@@ -14,9 +13,6 @@ import {
   FileText,
   Download,
   ShieldCheck,
-  Cpu,
-  Zap,
-  Brain,
 } from "lucide-react"
 
 import { JsonEditorCard } from "@/components/json-editor-card"
@@ -43,7 +39,6 @@ import {
 } from "@/lib/auth-file-usage"
 import type {
   AuthFile,
-  ModelDefinition,
   RuntimeSettings,
   StatusOk,
 } from "@/types/management"
@@ -51,7 +46,6 @@ import type {
 const NAV_ITEMS = [
   { id: "codex-keys", label: "Codex Keys", icon: Key },
   { id: "api-keys", label: "API Keys", icon: Database },
-  { id: "model-catalog", label: "Model Catalog", icon: BookOpen },
   { id: "runtime", label: "Runtime Settings", icon: Settings2 },
   { id: "auth-files", label: "Auth Files", icon: FileText },
 ] as const
@@ -191,18 +185,6 @@ function createAuthFileDraft(file: AuthFile) {
   return {
     priority: file.priority != null ? String(file.priority) : "",
   }
-}
-
-function formatCompactNumber(value?: number): string | null {
-  if (!value) {
-    return null
-  }
-
-  if (value >= 1000) {
-    return `${Math.round(value / 1000)}k`
-  }
-
-  return String(value)
 }
 
 function isUsageRecord(value: unknown): value is Record<string, unknown> {
@@ -543,103 +525,6 @@ function AuthFileUsageSummary({
     </div>
   )
 }
-
-function ModelCard({ model }: { model: ModelDefinition }) {
-  const contextLength = formatCompactNumber(model.context_length)
-  const completionLength = formatCompactNumber(model.max_completion_tokens)
-
-  return (
-    <article className="group relative flex h-full flex-col gap-4 rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/10">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold leading-none text-foreground">
-              {model.display_name || model.id}
-            </h3>
-            {model.version ? (
-              <Badge variant="secondary" className="border border-border/60 bg-muted/60 text-[10px] font-semibold text-foreground">
-                v{model.version}
-              </Badge>
-            ) : null}
-          </div>
-          <p className="text-[11px] font-medium tracking-[0.22em] text-muted-foreground uppercase">
-            {model.id}
-          </p>
-        </div>
-        <div className="rounded-xl border border-primary/15 bg-primary/5 p-2 text-primary transition-colors group-hover:bg-primary/10">
-          <Brain size={16} />
-        </div>
-      </div>
-
-      <p className="min-h-10 text-sm leading-relaxed text-muted-foreground">
-        {model.description || "Catalog metadata available for this model."}
-      </p>
-
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
-          <div className="mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            <Cpu size={12} />
-            Context window
-          </div>
-          <div className="text-sm font-semibold text-foreground">
-            {contextLength ? `${contextLength} tokens` : "Not provided"}
-          </div>
-        </div>
-        <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
-          <div className="mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            <Zap size={12} />
-            Max output
-          </div>
-          <div className="text-sm font-semibold text-foreground">
-            {completionLength ? `${completionLength} tokens` : "Not provided"}
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Supported parameters
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {model.supported_parameters?.length ? (
-              model.supported_parameters.map((parameter) => (
-                <Badge key={parameter} variant="outline" className="border-primary/20 bg-primary/5 text-[11px] text-primary">
-                  {parameter}
-                </Badge>
-              ))
-            ) : (
-              <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                No parameter overrides listed
-              </Badge>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Thinking levels
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {model.thinking?.levels?.length ? (
-              model.thinking.levels.map((level) => (
-                <Badge key={level} variant="secondary" className="border border-amber-500/20 bg-amber-500/10 text-[11px] text-amber-700">
-                  {level}
-                </Badge>
-              ))
-            ) : (
-              <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                Default reasoning only
-              </Badge>
-            )}
-          </div>
-        </div>
-      </div>
-
-    </article>
-  )
-}
-
 function AuthFileCard({
   file,
   draft,
@@ -788,7 +673,6 @@ function App() {
   )
   const [apiKeysText, setApiKeysText] = useState("")
   const [codexKeysText, setCodexKeysText] = useState("[]")
-  const [models, setModels] = useState<ModelDefinition[]>([])
   const [authFiles, setAuthFiles] = useState<AuthFile[]>([])
   const [authFileDrafts, setAuthFileDrafts] = useState<
     Record<string, ReturnType<typeof createAuthFileDraft>>
@@ -845,7 +729,6 @@ function App() {
           switchProjectResult,
           apiKeysResult,
           codexKeysResult,
-          modelCatalogResult,
           authFilesResult,
         ] = await Promise.allSettled([
           client.getJson<{ "ws-auth": boolean }>("/ws-auth"),
@@ -855,7 +738,6 @@ function App() {
           client.getJson<{ "switch-project": boolean }>("/quota-exceeded/switch-project"),
           client.getJson<{ "api-keys": string[] }>("/api-keys"),
           client.getJson<{ "codex-api-key": unknown[] }>("/codex-api-key"),
-          client.getJson<{ models: ModelDefinition[] }>("/model-definitions/codex"),
           client.getJson<{ files: AuthFile[] }>("/auth-files"),
         ])
 
@@ -867,7 +749,6 @@ function App() {
           switchProjectResult,
           apiKeysResult,
           codexKeysResult,
-          modelCatalogResult,
           authFilesResult,
         ]
 
@@ -897,9 +778,6 @@ function App() {
         }
         if (codexKeysResult.status === "fulfilled") {
           setCodexKeysText(prettyJson(toUnknownArray(codexKeysResult.value["codex-api-key"])))
-        }
-        if (modelCatalogResult.status === "fulfilled") {
-          setModels(modelCatalogResult.value.models)
         }
         if (authFilesResult.status === "fulfilled") {
           setAuthFiles(authFilesResult.value.files)
@@ -1355,7 +1233,7 @@ function App() {
                           Codex provider schema
                         </p>
                         <p className="text-sm leading-relaxed text-foreground">
-                          Paste the local provider array here. Keep Codex Keys as the top-level source of truth and let the dashboard auto-load the catalog beneath it.
+                          Paste the local provider array here. Keep Codex Keys as the top-level source of truth for Codex provider configuration.
                         </p>
                       </div>
                       <div className="rounded-xl border border-border/70 bg-background/80 p-3 text-[11px] leading-relaxed text-muted-foreground">
@@ -1415,38 +1293,6 @@ function App() {
                     placeholder="sk-..."
                     spellCheck={false}
                   />
-                </SectionCard>
-              </section>
-
-              <section id="model-catalog" className="scroll-mt-24">
-                <SectionCard
-                  id="catalog-card"
-                  title="Model Catalog"
-                  description="Current Codex model definitions."
-                  className="h-full"
-                  actions={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 text-primary hover:bg-primary/10 hover:text-primary"
-                      onClick={() => void loadDashboard(false)}
-                      disabled={busyAction !== null}
-                    >
-                      <RefreshCw size={14} className="mr-2" />
-                      Reload
-                    </Button>
-                  }
-                >
-                  <div className="grid gap-3">
-                    {models.length > 0 ? (
-                      models.map((model) => <ModelCard key={model.id} model={model} />)
-                    ) : (
-                      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/10 py-12 text-center">
-                        <BookOpen size={32} className="mb-2 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">No models found in catalog</p>
-                      </div>
-                    )}
-                  </div>
                 </SectionCard>
               </section>
             </div>
@@ -1681,7 +1527,7 @@ function App() {
                     /v0/management
                   </span>
                   <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-muted-foreground">
-                    Full catalog enabled
+                    Auth file models available
                   </span>
                 </div>
               </div>
