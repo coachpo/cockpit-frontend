@@ -84,13 +84,17 @@ export function createManagementClient() {
       return request<Blob>(path, undefined, (response) => response.blob())
     },
 
-    postJson<T>(path: string, body: unknown) {
+    postJson<T>(path: string, body?: unknown) {
       return request<T>(path, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
+        ...(body === undefined
+          ? {}
+          : {
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(body),
+            }),
       })
     },
 

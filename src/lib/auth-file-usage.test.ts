@@ -1,75 +1,34 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  getAuthFileUsageProbeRequest,
+  getAuthFileUsageRefreshPath,
   mergeAuthFileUsageResponse,
 } from "@/lib/auth-file-usage"
 
-describe("getAuthFileUsageProbeRequest", () => {
-  it("returns null when an auth file does not expose a usage probe", () => {
+describe("getAuthFileUsageRefreshPath", () => {
+  it("returns null when an auth file does not expose usage refresh", () => {
     expect(
-      getAuthFileUsageProbeRequest({
+      getAuthFileUsageRefreshPath({
         id: "auth-1",
         name: "Primary account",
       }),
     ).toBeNull()
   })
 
-  it("extracts a valid per-file api-call payload", () => {
-    const file = {
+  it("builds the path-based usage refresh endpoint from the auth file name", () => {
+    expect(getAuthFileUsageRefreshPath({
       id: "auth-1",
-      name: "Primary account",
-      usage_probe: {
-        authIndex: "faba86331753f728",
-        method: "GET",
-        url: "https://chatgpt.com/backend-api/wham/usage",
-        header: {
-          Authorization: "Bearer $TOKEN$",
-          "Content-Type": "application/json",
-          "Chatgpt-Account-Id": "83c9c0d7-8a88-411a-9688-9702d5887a7e",
-        },
-        body: {
-          source: "dashboard",
-        },
-      },
-    }
-
-    expect(getAuthFileUsageProbeRequest(file)).toEqual({
-      authIndex: "faba86331753f728",
-      method: "GET",
-      url: "https://chatgpt.com/backend-api/wham/usage",
-      header: {
-        Authorization: "Bearer $TOKEN$",
-        "Content-Type": "application/json",
-        "Chatgpt-Account-Id": "83c9c0d7-8a88-411a-9688-9702d5887a7e",
-      },
-      body: {
-        source: "dashboard",
-      },
-    })
+      name: "Primary account.json",
+      usage_available: true,
+    })).toBe("/auth-files/Primary%20account.json/usage")
   })
 
-  it("returns null when a usage probe is missing its method or url", () => {
-    expect(
-      getAuthFileUsageProbeRequest({
-        id: "auth-1",
-        name: "Primary account",
-        usage_probe: {
-          method: "",
-          url: "https://chatgpt.com/backend-api/wham/usage",
-        },
-      }),
-    ).toBeNull()
-
-    expect(
-      getAuthFileUsageProbeRequest({
-        id: "auth-1",
-        name: "Primary account",
-        usage_probe: {
-          method: "GET",
-          url: " ",
-        },
-      }),
+  it("returns null when the auth file name is blank", () => {
+    expect(getAuthFileUsageRefreshPath({
+      id: "auth-1",
+      name: "   ",
+      usage_available: true,
+    })
     ).toBeNull()
   })
 })

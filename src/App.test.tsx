@@ -60,7 +60,7 @@ function getJsonRequestBodies(url: string, method?: string) {
   return getMatchingRequests(url, method).map(([, init]) => JSON.parse(String(init?.body ?? "null")))
 }
 
-function findButton(container: HTMLElement, label: string): HTMLButtonElement {
+function findButton(container: ParentNode, label: string): HTMLButtonElement {
   const button = Array.from(container.querySelectorAll("button")).find((candidate) =>
     candidate.textContent?.includes(label),
   )
@@ -127,10 +127,26 @@ function setViewportPosition({
   })
 }
 
+function expectNoLegacyRequests() {
+  const requestedUrls = getRequestedUrls()
+
+  expect(requestedUrls.some((url) => url.includes("/codex-api-key"))).toBe(false)
+  expect(requestedUrls.some((url) => url.includes("/api-call"))).toBe(false)
+  expect(requestedUrls.some((url) => url.includes("/codex-auth-url"))).toBe(false)
+  expect(requestedUrls.some((url) => url.includes("/get-auth-status"))).toBe(false)
+  expect(requestedUrls.some((url) => url.includes("/auth-files/download"))).toBe(false)
+  expect(requestedUrls.some((url) => url.includes("/auth-files/status"))).toBe(false)
+  expect(requestedUrls.some((url) => url.includes("/auth-files/fields"))).toBe(false)
+}
+
 describe("App", () => {
   let container: HTMLDivElement
   let root: Root
   let openMock: ReturnType<typeof vi.fn>
+  let anchorClickMock: ReturnType<typeof vi.fn>
+  let createObjectURLMock: ReturnType<typeof vi.fn>
+  let revokeObjectURLMock: ReturnType<typeof vi.fn>
+  let oauthSessionStatuses: Array<Record<string, unknown>>
 
   beforeEach(() => {
     container = document.createElement("div")
@@ -143,6 +159,7 @@ describe("App", () => {
       }
     ).IS_REACT_ACT_ENVIRONMENT = true
 
+    window.history.pushState({}, "", "/")
     setViewportPosition({
       scrollY: 0,
       innerHeight: 720,
@@ -159,35 +176,53 @@ describe("App", () => {
     openMock = vi.fn(() => ({ closed: false }))
     vi.stubGlobal("open", openMock)
 
+    anchorClickMock = vi.fn()
+    Object.defineProperty(HTMLAnchorElement.prototype, "click", {
+      configurable: true,
+      value: anchorClickMock,
+    })
+
+    createObjectURLMock = vi.fn(() => "blob:auth-file")
+    revokeObjectURLMock = vi.fn()
+    Object.defineProperty(window.URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURLMock,
+    })
+    Object.defineProperty(window.URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURLMock,
+    })
+
+    oauthSessionStatuses = [
+      {
+        status: "pending",
+        provider: "codex",
+        state: "oauth-state-1",
+      },
+    ]
+
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : "url" in input ? input.url : input.toString()
+      const method = init?.method ?? "GET"
 
-      switch (url) {
-        case "/v0/management/ws-auth":
-          return jsonResponse({ "ws-auth": false })
-        case "/v0/management/request-retry":
-          return jsonResponse({ "request-retry": 3 })
-        case "/v0/management/max-retry-interval":
-          return jsonResponse({ "max-retry-interval": 30 })
-        case "/v0/management/routing/strategy":
-          return jsonResponse({ strategy: "round-robin" })
-        case "/v0/management/quota-exceeded/switch-project":
-          return jsonResponse({ "switch-project": true })
-        case "/v0/management/api-keys":
-          return jsonResponse({ "api-keys": ["sk-primary", "sk-backup"] })
-        case "/v0/management/codex-api-key":
+      switch (`${method} ${url}`) {
+        case "GET /v0/management/runtime-settings":
           return jsonResponse({
-            "codex-api-key": [
-              {
-                "api-key": "sk-codex-primary",
-                "base-url": "https://api.openai.com/v1",
-                priority: 1,
-              },
-            ],
+            "ws-auth": false,
+            "request-retry": 3,
+            "max-retry-interval": 30,
+            "routing-strategy": "round-robin",
+            "switch-project": true,
           })
-        case "/v0/management/auth-files":
+        case "PUT /v0/management/runtime-settings":
+          return jsonResponse({ status: "ok" })
+        case "GET /v0/management/api-keys":
+          return jsonResponse({ items: ["sk-primary", "sk-backup"] })
+        case "PUT /v0/management/api-keys":
+          return jsonResponse({ status: "ok" })
+        case "GET /v0/management/auth-files":
           return jsonResponse({
-            files: [
+            items: [
               {
                 id: "auth-primary",
                 name: "primary-codex.json",
@@ -199,6 +234,7 @@ describe("App", () => {
                 priority: 0,
                 disabled: false,
                 source: "file",
+                usage_available: true,
                 usage: {
                   limits: [
                     {
@@ -207,18 +243,6 @@ describe("App", () => {
                       used: "10 / 40",
                     },
                   ],
-                },
-                usage_probe: {
-                  authIndex: "primary-usage-probe",
-                  method: "POST",
-                  url: "https://chatgpt.com/backend-api/wham/usage",
-                  header: {
-                    Authorization: "Bearer $TOKEN$",
-                    "Content-Type": "application/json",
-                  },
-                  body: {
-                    source: "dashboard",
-                  },
                 },
               },
               {
@@ -231,11 +255,7 @@ describe("App", () => {
                 priority: 2,
                 disabled: false,
                 source: "oauth",
-                usage_probe: {
-                  authIndex: "backup-usage-probe",
-                  method: "GET",
-                  url: "https://chatgpt.com/backend-api/wham/usage/backup",
-                },
+                usage_available: true,
               },
               {
                 id: "auth-manual",
@@ -244,99 +264,91 @@ describe("App", () => {
                 email: "manual@example.com",
                 label: "Manual Seat",
                 status: "active",
-                status_message: "Imported without usage probe",
+                status_message: "Imported without usage refresh",
                 priority: 4,
                 disabled: false,
                 source: "file",
+                usage_available: false,
               },
             ],
           })
-        case "/v0/management/codex-auth-url?is_webui=true":
+        case "GET /v0/management/auth-files/primary-codex.json/content":
+          return new Response(JSON.stringify({ email: "owner@example.com" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+        case "PATCH /v0/management/auth-files/primary-codex.json":
+          return jsonResponse({ status: "ok" })
+        case "POST /v0/management/auth-files/primary-codex.json/usage":
+          return jsonResponse({
+            limits: [
+              {
+                label: "Messages",
+                percentage: 0.3,
+                used: "12 / 40",
+              },
+            ],
+            resets_at: "tomorrow 09:00 UTC",
+          })
+        case "POST /v0/management/auth-files/backup-codex.json/usage":
+          return jsonResponse({
+            plan_type: "team",
+            rate_limit: {
+              allowed: false,
+              limit_reached: true,
+              primary_window: {
+                used_percent: 30,
+                limit_window_seconds: 18000,
+                reset_after_seconds: 13433,
+                reset_at: 1774275058,
+              },
+              secondary_window: {
+                used_percent: 100,
+                limit_window_seconds: 604800,
+                reset_after_seconds: 451949,
+                reset_at: 1774713574,
+              },
+            },
+            code_review_rate_limit: {
+              allowed: true,
+              limit_reached: false,
+              primary_window: {
+                used_percent: 82,
+                limit_window_seconds: 604800,
+                reset_after_seconds: 604800,
+                reset_at: 1774866425,
+              },
+            },
+            credits: {
+              has_credits: false,
+              unlimited: false,
+              balance: null,
+            },
+          })
+        case "POST /v0/management/oauth-sessions":
           return jsonResponse({
             status: "ok",
             url: "https://auth.example/codex/start",
             state: "oauth-state-1",
           })
-        case "/v0/management/get-auth-status?state=oauth-state-1":
-          return jsonResponse({ status: "wait" })
-      }
-
-      if (url === "/v0/management/auth-files/fields" && init?.method === "PATCH") {
-        return jsonResponse({ status: "ok" })
-      }
-
-        if (url === "/v0/management/auth-files/status" && init?.method === "PATCH") {
-          return jsonResponse({ status: "ok", disabled: true })
+        case "GET /v0/management/oauth-sessions/oauth-state-1": {
+          const response = oauthSessionStatuses.shift() ?? {
+            status: "complete",
+            provider: "codex",
+            state: "oauth-state-1",
+            auth_file: "callback-codex.json",
+          }
+          return jsonResponse(response)
         }
-
-        if (url === "/v0/management/api-call" && init?.method === "POST") {
-          const body = JSON.parse(String(init.body ?? "{}")) as {
-            authIndex?: string
-            url?: string
-          }
-
-          if (body.authIndex === "primary-usage-probe") {
-            return jsonResponse({
-              limits: [
-                {
-                  label: "Messages",
-                  percentage: 0.3,
-                  used: "12 / 40",
-                },
-              ],
-              resets_at: "tomorrow 09:00 UTC",
-            })
-          }
-
-          if (body.authIndex === "backup-usage-probe") {
-            return jsonResponse({
-              status_code: 200,
-              header: {
-                "content-type": ["application/json"],
-              },
-              body: JSON.stringify({
-                plan_type: "team",
-                rate_limit: {
-                  allowed: false,
-                  limit_reached: true,
-                  primary_window: {
-                    used_percent: 30,
-                    limit_window_seconds: 18000,
-                    reset_after_seconds: 13433,
-                    reset_at: 1774275058,
-                  },
-                  secondary_window: {
-                    used_percent: 100,
-                    limit_window_seconds: 604800,
-                    reset_after_seconds: 451949,
-                    reset_at: 1774713574,
-                  },
-                },
-                code_review_rate_limit: {
-                  allowed: true,
-                  limit_reached: false,
-                  primary_window: {
-                    used_percent: 82,
-                    limit_window_seconds: 604800,
-                    reset_after_seconds: 604800,
-                    reset_at: 1774866425,
-                  },
-                  secondary_window: null,
-                },
-                credits: {
-                  has_credits: false,
-                  unlimited: false,
-                  balance: null,
-                },
-              }),
-            })
-          }
-
-          return new Response(`Unexpected usage probe: ${body.url ?? "unknown"}`, { status: 404 })
-        }
-
-        return new Response(`Unexpected URL: ${url}`, { status: 404 })
-      })
+        case "POST /v0/management/oauth-sessions/oauth-state-1/callback":
+          return jsonResponse({
+            status: "ok",
+            auth_file: "callback-codex.json",
+          })
+        default:
+          return new Response(`Unexpected request: ${method} ${url}`, { status: 404 })
+      }
+    })
 
     vi.stubGlobal("fetch", fetchMock)
   })
@@ -345,219 +357,64 @@ describe("App", () => {
     await act(async () => {
       root.unmount()
     })
+
     container.remove()
     fetchMock.mockReset()
+    vi.useRealTimers()
     vi.unstubAllGlobals()
+    window.history.pushState({}, "", "/")
   })
 
-  it("auto-loads the dashboard without requesting or rendering the standalone model catalog", async () => {
+  it("loads the redesigned management surface without rendering Codex Keys or calling legacy endpoints", async () => {
     await act(async () => {
       root.render(<App />)
       await flushEffects()
     })
 
     const requestedUrls = getRequestedUrls()
-    expect(requestedUrls).toContain("/v0/management/ws-auth")
+
+    expect(requestedUrls).toContain("/v0/management/runtime-settings")
+    expect(requestedUrls).toContain("/v0/management/api-keys")
     expect(requestedUrls).toContain("/v0/management/auth-files")
-    expect(requestedUrls).not.toContain("/v0/management/model-definitions/codex")
-
-    const pageText = container.textContent ?? ""
-    expect(pageText).toContain("Codex Keys")
-    expect(pageText).toContain("Auth Files")
-    expect(pageText).not.toContain("Model Catalog")
-    expect(pageText).not.toContain("Full catalog enabled")
-
-    expect(container.querySelector("#model-catalog")).toBeNull()
+    expect(container.querySelector("#codex-keys")).toBeNull()
+    expect(container.textContent).toContain("API Keys")
+    expect(container.textContent).toContain("Runtime Settings")
+    expect(container.textContent).toContain("Auth Files")
+    expect(container.textContent).not.toContain("Codex Keys")
+    expect(container.textContent).toContain("Usage-ready files")
+    expectNoLegacyRequests()
   })
 
-  it("shows redacted Codex Keys examples for opencode and codex_cli_rs headers", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
-
-    const codexKeysSection = container.querySelector("#codex-keys")
-
-    expect(codexKeysSection?.textContent).toContain('"api-key": "[REDACTED]"')
-    expect(codexKeysSection?.textContent).toContain('"base-url": "https://[REDACTED]"')
-    expect(codexKeysSection?.textContent).toContain('"originator": "opencode"')
-    expect(codexKeysSection?.textContent).toContain('opencode/1.3.0 (darwin 25.3.0; arm64) ai-sdk/provider-utils/3.0.20 runtime/bun/1.3.10')
-    expect(codexKeysSection?.textContent).toContain('"originator": "codex_cli_rs"')
-    expect(codexKeysSection?.textContent).toContain('codex_cli_rs/0.116.0 (Mac OS 26.3.1; arm64) Apple_Terminal/466')
-  })
-
-  it("renders API Keys without a standalone model catalog section beside it", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
-
-    const apiKeysSection = container.querySelector("#api-keys")
-    const modelCatalogSection = container.querySelector("#model-catalog")
-
-    if (!apiKeysSection) {
-      throw new Error("Missing API Keys section")
-    }
-
-    const sharedLayout = apiKeysSection.parentElement
-    const siblingSectionIds = Array.from(sharedLayout?.children ?? [])
-      .map((element) => (element instanceof HTMLElement ? element.id : ""))
-      .filter(Boolean)
-
-    expect(modelCatalogSection).toBeNull()
-    expect(siblingSectionIds).toEqual(["api-keys"])
-    expect(apiKeysSection.querySelector("textarea")).not.toBeNull()
-  })
-
-  it("keeps OAuth actions but removes the idle badge and explanatory copy", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
-
-    expect(container.textContent).toContain("OAuth")
-    expect(container.textContent).toContain("owner@example.com")
-    expect(container.textContent).not.toContain("Restore browser-based Codex sign-in without changing the app’s authless same-origin runtime.")
-    expect(container.textContent).not.toContain("OAuth is idle until you start a new browser flow.")
-    expect(container.textContent).not.toContain("Open a fresh browser sign-in flow when you need to reconnect a Codex session.")
-    expect(container.textContent).not.toContain("Start OAuth to open the browser sign-in flow.")
-    expect(container.textContent).not.toContain("idle")
-
-    const startOAuthButton = findButton(container, "Start OAuth")
-    await act(async () => {
-      startOAuthButton.click()
-      await flushEffects()
-    })
-
-    expect(getRequestedUrls()).toContain("/v0/management/codex-auth-url?is_webui=true")
-    expect(getRequestedUrls()).toContain("/v0/management/get-auth-status?state=oauth-state-1")
-    expect(openMock).toHaveBeenCalledWith("https://auth.example/codex/start", "_blank")
-    expect(container.textContent).toContain("Waiting for browser confirmation")
-
-    const saveDetailsButton = findButton(container, "Save details")
-    await act(async () => {
-      saveDetailsButton.click()
-      await flushEffects()
-    })
-
-    const fieldsRequest = fetchMock.mock.calls.find(([input, init]) => {
-      const url = typeof input === "string" ? input : "url" in input ? input.url : input.toString()
-      return url === "/v0/management/auth-files/fields" && init?.method === "PATCH"
-    })
-
-    expect(fieldsRequest).toBeDefined()
-    expect(fieldsRequest?.[1]?.body).toBe(
-      JSON.stringify({
-        name: "primary-codex.json",
-        priority: 0,
-      }),
-    )
-
-    const disableButton = findButton(container, "Disable auth file")
-    await act(async () => {
-      disableButton.click()
-      await flushEffects()
-    })
-
-    const statusRequest = fetchMock.mock.calls.find(([input, init]) => {
-      const url = typeof input === "string" ? input : "url" in input ? input.url : input.toString()
-      return url === "/v0/management/auth-files/status" && init?.method === "PATCH"
-    })
-
-    expect(statusRequest).toBeDefined()
-    expect(statusRequest?.[1]?.body).toBe(
-      JSON.stringify({
-        name: "primary-codex.json",
-        disabled: true,
-      }),
-    )
-  })
-
-  it("posts a single auth file usage probe to the restored api-call route and merges the response into the compact row", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
-
-    const primaryRow = findAuthFileRow(container, "primary-codex.json")
-    expect(primaryRow.textContent).toContain("Messages")
-    expect(primaryRow.textContent).toContain("10 / 40")
-
-    await act(async () => {
-      findButton(primaryRow, "Query usage").click()
-      await flushEffects()
-    })
-
-    expect(getJsonRequestBodies("/v0/management/api-call", "POST")).toContainEqual({
-      authIndex: "primary-usage-probe",
-      method: "POST",
-      url: "https://chatgpt.com/backend-api/wham/usage",
-      header: {
-        Authorization: "Bearer $TOKEN$",
-        "Content-Type": "application/json",
-      },
-      body: {
-        source: "dashboard",
-      },
-    })
-    expect(primaryRow.textContent).toContain("12 / 40")
-    expect(primaryRow.textContent).toContain("tomorrow 09:00 UTC")
-  })
-
-  it("queries usage for every probe-capable auth file from the section-level action", async () => {
+  it("saves api keys and runtime settings through the redesigned aggregate endpoints", async () => {
     await act(async () => {
       root.render(<App />)
       await flushEffects()
     })
 
     await act(async () => {
-      findButton(container, "Query all usage").click()
+      findButton(container, "Save Keys").click()
       await flushEffects()
     })
 
-    expect(getJsonRequestBodies("/v0/management/api-call", "POST")).toEqual([
-      {
-        authIndex: "primary-usage-probe",
-        method: "POST",
-        url: "https://chatgpt.com/backend-api/wham/usage",
-        header: {
-          Authorization: "Bearer $TOKEN$",
-          "Content-Type": "application/json",
-        },
-        body: {
-          source: "dashboard",
-        },
-      },
-      {
-        authIndex: "backup-usage-probe",
-        method: "GET",
-        url: "https://chatgpt.com/backend-api/wham/usage/backup",
-      },
-    ])
+    await act(async () => {
+      findButton(container, "Apply Changes").click()
+      await flushEffects()
+    })
 
-    const backupRow = findAuthFileRow(container, "backup-codex.json")
-    const usageBars = backupRow.querySelectorAll('[data-slot="auth-usage-bar"]')
-
-    expect(backupRow.textContent).toContain("Plan")
-    expect(backupRow.textContent).toContain("team")
-    expect(backupRow.textContent).toContain("Usages")
-    expect(backupRow.textContent).toContain("5-hour Usage")
-    expect(backupRow.textContent).toContain("30%")
-    expect(backupRow.textContent).toContain("resets in 4h")
-    expect(backupRow.textContent).toContain("Weekly Usage")
-    expect(backupRow.textContent).toContain("100%")
-    expect(backupRow.textContent).toContain("resets in 5d")
-    expect(backupRow.textContent).toContain("Code Review Usage")
-    expect(backupRow.textContent).toContain("82%")
-    expect(backupRow.textContent).toContain("resets in 7d")
-    expect(backupRow.textContent).not.toContain("Core access")
-    expect(backupRow.textContent).not.toContain("Review access")
-    expect(usageBars).toHaveLength(3)
-    expect(backupRow.textContent).toContain("Credits")
-    expect(backupRow.textContent).toContain("No credits")
+    expect(getJsonRequestBodies("/v0/management/api-keys", "PUT")).toContainEqual({
+      items: ["sk-primary", "sk-backup"],
+    })
+    expect(getJsonRequestBodies("/v0/management/runtime-settings", "PUT")).toContainEqual({
+      "ws-auth": false,
+      "request-retry": 3,
+      "max-retry-interval": 30,
+      "routing-strategy": "round-robin",
+      "switch-project": true,
+    })
+    expectNoLegacyRequests()
   })
 
-  it("renders auth files without models, prefix, or note fields while keeping priority editing", async () => {
+  it("uses path-based auth-file actions for usage refresh, download, and patch mutations", async () => {
     await act(async () => {
       root.render(<App />)
       await flushEffects()
@@ -566,16 +423,45 @@ describe("App", () => {
     const primaryRow = findAuthFileRow(container, "primary-codex.json")
     const manualRow = findAuthFileRow(container, "manual-codex.json")
 
-    expect(primaryRow.textContent).toContain("Messages")
+    expect(primaryRow.textContent).toContain("10 / 40")
     expect(findButton(manualRow, "Query usage").disabled).toBe(true)
-    expect(primaryRow.textContent).not.toContain("Registered models")
-    expect(primaryRow.textContent).not.toContain("View file models")
-    expect(primaryRow.textContent).not.toContain("Prefix")
-    expect(primaryRow.textContent).not.toContain("Note")
-    expect(primaryRow.querySelector('input[aria-label="Priority for primary-codex.json"]')).not.toBeNull()
+
+    await act(async () => {
+      findButton(primaryRow, "Query usage").click()
+      await flushEffects()
+    })
+
+    expect(primaryRow.textContent).toContain("12 / 40")
+    expect(primaryRow.textContent).toContain("tomorrow 09:00 UTC")
+
+    await act(async () => {
+      findButton(primaryRow, "Download JSON").click()
+      await flushEffects()
+    })
+
+    await act(async () => {
+      findButton(primaryRow, "Save details").click()
+      await flushEffects()
+    })
+
+    await act(async () => {
+      findButton(primaryRow, "Disable auth file").click()
+      await flushEffects()
+    })
+
+    expect(getRequestedUrls()).toContain("/v0/management/auth-files/primary-codex.json/usage")
+    expect(getRequestedUrls()).toContain("/v0/management/auth-files/primary-codex.json/content")
+    expect(getJsonRequestBodies("/v0/management/auth-files/primary-codex.json", "PATCH")).toEqual([
+      { priority: 0 },
+      { disabled: true },
+    ])
+    expect(anchorClickMock).toHaveBeenCalledTimes(1)
+    expect(createObjectURLMock).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:auth-file")
+    expectNoLegacyRequests()
   })
 
-  it("renders one stacked usage list with human-readable labels", async () => {
+  it("refreshes usage only for auth files with usage_available and merges the returned summary", async () => {
     await act(async () => {
       root.render(<App />)
       await flushEffects()
@@ -586,85 +472,112 @@ describe("App", () => {
       await flushEffects()
     })
 
+    const usageRefreshUrls = getRequestedUrls().filter((url) => url.endsWith("/usage"))
     const backupRow = findAuthFileRow(container, "backup-codex.json")
-    expect(backupRow.textContent).toContain("Usages")
+
+    expect(usageRefreshUrls).toEqual([
+      "/v0/management/auth-files/primary-codex.json/usage",
+      "/v0/management/auth-files/backup-codex.json/usage",
+    ])
+    expect(backupRow.textContent).toContain("Plan")
+    expect(backupRow.textContent).toContain("team")
     expect(backupRow.textContent).toContain("5-hour Usage")
     expect(backupRow.textContent).toContain("Weekly Usage")
     expect(backupRow.textContent).toContain("Code Review Usage")
-    expect(backupRow.textContent).not.toContain("Core access")
-    expect(backupRow.textContent).not.toContain("Review access")
-    expect(backupRow.textContent).not.toContain("Core 5h")
-    expect(backupRow.textContent).not.toContain("Core 7d")
-    expect(backupRow.textContent).not.toContain("Review 7d")
-    expect(backupRow.textContent).not.toContain("Blocked")
-    expect(backupRow.textContent).not.toContain("Allowed")
-    expect(backupRow.textContent).not.toContain("Almost used")
-    expect(backupRow.querySelectorAll('[data-slot="auth-usage-ring"]')).toHaveLength(0)
+    expect(backupRow.textContent).toContain("Credits")
+    expect(backupRow.textContent).toContain("No credits")
     expect(backupRow.querySelectorAll('[data-slot="auth-usage-bar"]')).toHaveLength(3)
+    expectNoLegacyRequests()
   })
 
-  it("updates the configuration selector using section visibility", async () => {
+  it("starts oauth with frontend callback origin and polls the oauth session resource", async () => {
+    vi.useFakeTimers()
+    oauthSessionStatuses = [
+      {
+        status: "pending",
+        provider: "codex",
+        state: "oauth-state-1",
+      },
+      {
+        status: "complete",
+        provider: "codex",
+        state: "oauth-state-1",
+        auth_file: "callback-codex.json",
+      },
+    ]
+
     await act(async () => {
       root.render(<App />)
       await flushEffects()
     })
 
-    const codexKeysButton = findButton(container, "Codex Keys")
-    const runtimeButton = findButton(container, "Runtime Settings")
-
-    expect(codexKeysButton.getAttribute("aria-current")).toBe("page")
-    expect(runtimeButton.getAttribute("aria-current")).toBeNull()
-
-    const runtimeSection = container.querySelector("#runtime")
-    const observer = MockIntersectionObserver.instances[0]
-
-    expect(observer).toBeDefined()
-    expect(runtimeSection).not.toBeNull()
-
     await act(async () => {
-      observer?.trigger([{ target: runtimeSection as Element, isIntersecting: true }])
+      findButton(container, "Start OAuth").click()
       await flushEffects()
     })
 
-    expect(runtimeButton.getAttribute("aria-current")).toBe("page")
-    expect(codexKeysButton.getAttribute("aria-current")).toBeNull()
+    expect(getJsonRequestBodies("/v0/management/oauth-sessions", "POST")).toContainEqual({
+      provider: "codex",
+      callback_origin: window.location.origin,
+    })
+    expect(getRequestedUrls()).toContain("/v0/management/oauth-sessions/oauth-state-1")
+    expect(openMock).toHaveBeenCalledWith("https://auth.example/codex/start", "_blank")
+    expect(container.textContent).toContain("Waiting for browser confirmation")
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000)
+      await flushEffects()
+      await flushEffects()
+    })
+
+    expect(container.textContent).toContain("OAuth session connected: callback-codex.json")
+    expectNoLegacyRequests()
   })
 
-  it("updates the configuration selector from live scroll position changes", async () => {
+  it("shows an error when the browser blocks the oauth popup", async () => {
+    openMock.mockReturnValue(null)
+
     await act(async () => {
       root.render(<App />)
       await flushEffects()
     })
 
-    const codexKeysButton = findButton(container, "Codex Keys")
-    const runtimeButton = findButton(container, "Runtime Settings")
-    const codexSection = container.querySelector("#codex-keys")
-    const apiKeysSection = container.querySelector("#api-keys")
-    const runtimeSection = container.querySelector("#runtime")
-    const authFilesSection = container.querySelector("#auth-files")
-
-    if (!codexSection || !apiKeysSection || !runtimeSection || !authFilesSection) {
-      throw new Error("Missing dashboard sections for scroll test")
-    }
-
-    setSectionTop(codexSection, -920)
-    setSectionTop(apiKeysSection, -160)
-    setSectionTop(runtimeSection, 88)
-    setSectionTop(authFilesSection, 820)
-
-    expect(codexKeysButton.getAttribute("aria-current")).toBe("page")
-    expect(runtimeButton.getAttribute("aria-current")).toBeNull()
-
     await act(async () => {
-      window.dispatchEvent(new Event("scroll"))
+      findButton(container, "Start OAuth").click()
       await flushEffects()
     })
 
-    expect(runtimeButton.getAttribute("aria-current")).toBe("page")
-    expect(codexKeysButton.getAttribute("aria-current")).toBeNull()
+    expect(container.textContent).toContain("Browser blocked the OAuth popup")
+    expect(container.textContent).not.toContain("Waiting for browser confirmation")
+    expectNoLegacyRequests()
   })
 
-  it("switches from API Keys to Runtime as the next section scrolls past the anchor", async () => {
+  it("owns /codex/callback in the frontend shell and forwards callback data to the oauth session callback endpoint", async () => {
+    window.history.pushState({}, "", "/codex/callback?state=oauth-state-1&code=auth-code")
+
+    await act(async () => {
+      root.render(<App />)
+      await flushEffects()
+    })
+
+    expect(getRequestedUrls()).toEqual([
+      "/v0/management/oauth-sessions/oauth-state-1/callback",
+    ])
+    expect(getJsonRequestBodies("/v0/management/oauth-sessions/oauth-state-1/callback", "POST")).toEqual([
+      {
+        provider: "codex",
+        state: "oauth-state-1",
+        redirect_url: window.location.href,
+        code: "auth-code",
+      },
+    ])
+    expect(container.textContent).toContain("Frontend-owned OAuth callback")
+    expect(container.textContent).toContain("Authentication linked to callback-codex.json")
+    expect(container.textContent).not.toContain("API Keys")
+    expectNoLegacyRequests()
+  })
+
+  it("updates the configuration selector from scroll position with api keys as the first section", async () => {
     await act(async () => {
       root.render(<App />)
       await flushEffects()
@@ -672,25 +585,17 @@ describe("App", () => {
 
     const apiKeysButton = findButton(container, "API Keys")
     const runtimeButton = findButton(container, "Runtime Settings")
-    const codexSection = container.querySelector("#codex-keys")
     const apiKeysSection = container.querySelector("#api-keys")
     const runtimeSection = container.querySelector("#runtime")
     const authFilesSection = container.querySelector("#auth-files")
 
-    expect(container.querySelector("#model-catalog")).toBeNull()
-
-    if (!codexSection || !apiKeysSection || !runtimeSection || !authFilesSection) {
-      throw new Error("Missing dashboard sections for selector test")
+    if (!apiKeysSection || !runtimeSection || !authFilesSection) {
+      throw new Error("Missing dashboard sections for scroll test")
     }
 
-    await act(async () => {
-      apiKeysButton.click()
-      await flushEffects()
-    })
-
     expect(apiKeysButton.getAttribute("aria-current")).toBe("page")
+    expect(runtimeButton.getAttribute("aria-current")).toBeNull()
 
-    setSectionTop(codexSection, -920)
     setSectionTop(apiKeysSection, -220)
     setSectionTop(runtimeSection, 32)
     setSectionTop(authFilesSection, 540)
@@ -702,91 +607,5 @@ describe("App", () => {
 
     expect(runtimeButton.getAttribute("aria-current")).toBe("page")
     expect(apiKeysButton.getAttribute("aria-current")).toBeNull()
-  })
-
-  it("selects the final section when the viewport reaches the document bottom", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
-
-    const runtimeButton = findButton(container, "Runtime Settings")
-    const authFilesButton = findButton(container, "Auth Files")
-    const codexSection = container.querySelector("#codex-keys")
-    const apiKeysSection = container.querySelector("#api-keys")
-    const runtimeSection = container.querySelector("#runtime")
-    const authFilesSection = container.querySelector("#auth-files")
-
-    if (!codexSection || !apiKeysSection || !runtimeSection || !authFilesSection) {
-      throw new Error("Missing dashboard sections for bottom-of-page scroll test")
-    }
-
-    setViewportPosition({
-      scrollY: 1220,
-      innerHeight: 760,
-      scrollHeight: 1980,
-    })
-
-    setSectionTop(codexSection, -1200)
-    setSectionTop(apiKeysSection, -260)
-    setSectionTop(runtimeSection, 55)
-    setSectionTop(authFilesSection, 582)
-
-    expect(runtimeButton.getAttribute("aria-current")).toBeNull()
-    expect(authFilesButton.getAttribute("aria-current")).toBeNull()
-
-    await act(async () => {
-      window.dispatchEvent(new Event("scroll"))
-      await flushEffects()
-    })
-
-    expect(authFilesButton.getAttribute("aria-current")).toBe("page")
-    expect(runtimeButton.getAttribute("aria-current")).toBeNull()
-  })
-
-  it("shows an error when the browser blocks the OAuth popup", async () => {
-    openMock.mockReturnValue(null)
-
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
-
-    const startOAuthButton = findButton(container, "Start OAuth")
-
-    await act(async () => {
-      startOAuthButton.click()
-      await flushEffects()
-    })
-
-    expect(container.textContent).toContain("Browser blocked the OAuth popup")
-    expect(container.textContent).not.toContain("Waiting for browser confirmation")
-  })
-
-  it("preserves zero-priority auth files in the UI and save payload", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
-
-    expect(container.textContent).toContain("Priority 0")
-
-    const saveDetailsButton = findButton(container, "Save details")
-    await act(async () => {
-      saveDetailsButton.click()
-      await flushEffects()
-    })
-
-    const fieldsRequest = fetchMock.mock.calls.find(([input, init]) => {
-      const url = typeof input === "string" ? input : "url" in input ? input.url : input.toString()
-      return url === "/v0/management/auth-files/fields" && init?.method === "PATCH"
-    })
-
-    expect(fieldsRequest?.[1]?.body).toBe(
-      JSON.stringify({
-        name: "primary-codex.json",
-        priority: 0,
-      }),
-    )
   })
 })

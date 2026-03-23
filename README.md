@@ -1,6 +1,6 @@
 # Cockpit Frontend
 
-Cockpit Frontend is the React + Vite management console for the Cockpit backend. It talks to the backend management surface at `/v0/management`, sends the management key as `X-Management-Key`, and exposes the full dashboard from a single-page UI.
+Cockpit Frontend is the React + Vite management console for the Cockpit backend. It talks to the same-origin backend management surface at `/v0/management`, owns the browser-facing `/codex/callback` route for OAuth handoff, and exposes the full dashboard from a single-page UI.
 
 ## Stack
 

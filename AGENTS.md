@@ -58,6 +58,6 @@ pnpm preview
 - `src/App.css` and `src/assets/` are leftover template artifacts, not the canonical styling or asset path for the current dashboard.
 
 ## NOTES
-- Vite dev proxy currently forwards `/v0/management`, `/v1`, `/api/provider`, and `/codex/callback` to `COCKPIT_LOCAL_BACKEND_URL`.
+- Vite dev proxy currently forwards `/v0/management`, `/v1`, and `/api/provider` to `COCKPIT_LOCAL_BACKEND_URL`; `/codex/callback` stays frontend-owned in dev and production.
 - Frontend CI currently runs install, lint, and build only. `pnpm test` exists locally but is not part of `.github/workflows/ci.yml` yet.
 - Docker builds accept `VITE_GIT_RUN_NUMBER` and `VITE_GIT_REVISION`, then serve the built app from nginx.

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   LayoutDashboard,
   Settings2,
-  Key,
   Database,
   RefreshCw,
   Save,
@@ -15,7 +14,6 @@ import {
   ShieldCheck,
 } from "lucide-react"
 
-import { JsonEditorCard } from "@/components/json-editor-card"
 import { SectionCard } from "@/components/section-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -34,69 +32,39 @@ import {
   createManagementClient,
 } from "@/lib/management-api"
 import {
-  getAuthFileUsageProbeRequest,
+  getAuthFileUsageRefreshPath,
   mergeAuthFileUsageResponse,
 } from "@/lib/auth-file-usage"
 import type {
+  ApiKeysEnvelope,
   AuthFile,
+  AuthFilesEnvelope,
+  OAuthProvider,
+  OAuthSessionCallbackRequest,
+  OAuthSessionCreateRequest,
+  OAuthSessionCreateResponse,
+  OAuthSessionStatusResponse,
   RuntimeSettings,
+  RuntimeSettingsFormState,
   StatusOk,
 } from "@/types/management"
 
 const NAV_ITEMS = [
-  { id: "codex-keys", label: "Codex Keys", icon: Key },
   { id: "api-keys", label: "API Keys", icon: Database },
   { id: "runtime", label: "Runtime Settings", icon: Settings2 },
   { id: "auth-files", label: "Auth Files", icon: FileText },
 ] as const
 
-const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = {
+const CALLBACK_PATH = "/codex/callback"
+const OAUTH_PROVIDER: OAuthProvider = "codex"
+
+const DEFAULT_RUNTIME_SETTINGS: RuntimeSettingsFormState = {
   wsAuth: false,
   requestRetry: 0,
   maxRetryInterval: 0,
   routingStrategy: "round-robin",
   switchProject: false,
 }
-
-const CODEX_KEYS_EXAMPLES = [
-  {
-    title: "opencode",
-    config: `{
-  "api-key": "[REDACTED]",
-  "base-url": "https://[REDACTED]",
-  "headers": {
-    "content-type": "application/json",
-    "user-agent": "opencode/1.3.0 (darwin 25.3.0; arm64) ai-sdk/provider-utils/3.0.20 runtime/bun/1.3.10",
-    "originator": "opencode",
-    "accept": "*/*"
-  }
-}`,
-  },
-  {
-    title: "codex_cli_rs",
-    config: `{
-  "api-key": "[REDACTED]",
-  "base-url": "https://[REDACTED]",
-  "headers": {
-    "x-codex-turn-metadata": "{\\"turn_id\\":\\"019d1a56-8c29-7f92-abce-dfb9db985389\\",\\"sandbox\\":\\"none\\"}",
-    "x-client-request-id": "019d1a56-8235-7831-bd58-34f839351fd1",
-    "accept": "text/event-stream",
-    "content-type": "application/json",
-    "user-agent": "codex_cli_rs/0.116.0 (Mac OS 26.3.1; arm64) Apple_Terminal/466",
-    "originator": "codex_cli_rs"
-  }
-}`,
-  },
-] as const
-
-const CODEX_KEYS_PLACEHOLDER = `[
-${CODEX_KEYS_EXAMPLES.map(({ config }) =>
-  config
-    .split("\n")
-    .map((line) => `  ${line}`)
-    .join("\n"),
-).join(",\n")}
-]`
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ManagementRequestError) {
@@ -106,18 +74,6 @@ function getErrorMessage(error: unknown): string {
     return error.message
   }
   return "Unknown error"
-}
-
-function prettyJson(value: unknown): string {
-  return JSON.stringify(value ?? null, null, 2)
-}
-
-function parseJsonText<T>(value: string, label: string): T {
-  try {
-    return JSON.parse(value) as T
-  } catch {
-    throw new Error(`${label} must be valid JSON`)
-  }
 }
 
 function parseApiKeys(value: string): string[] {
@@ -134,8 +90,33 @@ function toStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string")
 }
 
-function toUnknownArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : []
+function isCodexCallbackPath(pathname: string): boolean {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/"
+  return normalizedPath === CALLBACK_PATH
+}
+
+function toRuntimeSettingsFormState(settings: RuntimeSettings): RuntimeSettingsFormState {
+  return {
+    wsAuth: settings["ws-auth"],
+    requestRetry: settings["request-retry"],
+    maxRetryInterval: settings["max-retry-interval"],
+    routingStrategy: settings["routing-strategy"],
+    switchProject: settings["switch-project"],
+  }
+}
+
+function toRuntimeSettingsPayload(settings: RuntimeSettingsFormState): RuntimeSettings {
+  return {
+    "ws-auth": settings.wsAuth,
+    "request-retry": settings.requestRetry,
+    "max-retry-interval": settings.maxRetryInterval,
+    "routing-strategy": settings.routingStrategy,
+    "switch-project": settings.switchProject,
+  }
+}
+
+function getAuthFilePath(name: string): string {
+  return `/auth-files/${encodeURIComponent(name)}`
 }
 
 function StatusPill({
@@ -299,33 +280,33 @@ function getUsageWindowSummary(label: string, window: Record<string, unknown>): 
 
   const reset = formatDurationLabel(window.reset_after_seconds)
 
-	return {
-		label,
-		percentage,
-		tone: getWindowTone(percentage),
-		detail: reset ? `resets in ${reset}` : null,
-	}
+  return {
+    label,
+    percentage,
+    tone: getWindowTone(percentage),
+    detail: reset ? `resets in ${reset}` : null,
+  }
 }
 
 function getUsageWindowSummaries(file: AuthFile): AuthUsageWindowSummary[] {
-	const rateLimit = isUsageRecord(file.usage?.rate_limit) ? file.usage?.rate_limit : null
-	const reviewRateLimit = isUsageRecord(file.usage?.code_review_rate_limit)
-		? file.usage?.code_review_rate_limit
-		: null
+  const rateLimit = isUsageRecord(file.usage?.rate_limit) ? file.usage?.rate_limit : null
+  const reviewRateLimit = isUsageRecord(file.usage?.code_review_rate_limit)
+    ? file.usage?.code_review_rate_limit
+    : null
 
-	const windows: Array<AuthUsageWindowSummary | null> = [
-		rateLimit && isUsageRecord(rateLimit.primary_window)
-			? getUsageWindowSummary("5-hour Usage", rateLimit.primary_window)
-			: null,
-		rateLimit && isUsageRecord(rateLimit.secondary_window)
-			? getUsageWindowSummary("Weekly Usage", rateLimit.secondary_window)
-			: null,
-		reviewRateLimit && isUsageRecord(reviewRateLimit.primary_window)
-			? getUsageWindowSummary("Code Review Usage", reviewRateLimit.primary_window)
-			: null,
-	]
+  const windows: Array<AuthUsageWindowSummary | null> = [
+    rateLimit && isUsageRecord(rateLimit.primary_window)
+      ? getUsageWindowSummary("5-hour Usage", rateLimit.primary_window)
+      : null,
+    rateLimit && isUsageRecord(rateLimit.secondary_window)
+      ? getUsageWindowSummary("Weekly Usage", rateLimit.secondary_window)
+      : null,
+    reviewRateLimit && isUsageRecord(reviewRateLimit.primary_window)
+      ? getUsageWindowSummary("Code Review Usage", reviewRateLimit.primary_window)
+      : null,
+  ]
 
-	return windows.filter((window): window is AuthUsageWindowSummary => Boolean(window))
+  return windows.filter((window): window is AuthUsageWindowSummary => Boolean(window))
 }
 
 function getCreditsEntry(value: unknown): { label: string; value: string } | null {
@@ -460,11 +441,11 @@ function AuthFileUsageSummary({
   canQueryUsage,
 }: {
   file: AuthFile
-	canQueryUsage: boolean
+  canQueryUsage: boolean
 }) {
-	const usageWindows = getUsageWindowSummaries(file)
-	const usageEntries = getAuthFileUsageMetaEntries(file.usage)
-	const hasUsageData = usageWindows.length > 0 || usageEntries.length > 0
+  const usageWindows = getUsageWindowSummaries(file)
+  const usageEntries = getAuthFileUsageMetaEntries(file.usage)
+  const hasUsageData = usageWindows.length > 0 || usageEntries.length > 0
 
   return (
     <div className="rounded-xl border border-border/70 bg-muted/10 p-3">
@@ -479,25 +460,25 @@ function AuthFileUsageSummary({
         </div>
         {!canQueryUsage ? (
           <Badge variant="outline" className="text-[11px] text-muted-foreground">
-            Probe unavailable
+            Usage refresh unavailable
           </Badge>
         ) : null}
       </div>
 
-		{hasUsageData ? (
-			<div className="space-y-3">
-				{usageWindows.length ? (
-					<div className="rounded-xl border border-border/70 bg-background/80 px-3 py-3">
-						<div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-							Usages
-						</div>
-						<div className="mt-3 space-y-2">
-							{usageWindows.map((window) => (
-								<AuthUsageBar key={window.label} window={window} />
-							))}
-						</div>
-					</div>
-				) : null}
+        {hasUsageData ? (
+          <div className="space-y-3">
+            {usageWindows.length ? (
+              <div className="rounded-xl border border-border/70 bg-background/80 px-3 py-3">
+                <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  Usages
+                </div>
+                <div className="mt-3 space-y-2">
+                  {usageWindows.map((window) => (
+                    <AuthUsageBar key={window.label} window={window} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
           {usageEntries.length ? (
             <div className="flex flex-wrap gap-2">
@@ -519,7 +500,7 @@ function AuthFileUsageSummary({
         <div className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-sm text-muted-foreground">
           {canQueryUsage
             ? "Query usage to populate this auth file summary."
-            : "This auth file does not expose a usage probe."}
+            : "This auth file does not expose usage refresh."}
         </div>
       )}
     </div>
@@ -545,7 +526,7 @@ function AuthFileCard({
   onToggleDisabled: (file: AuthFile) => void
 }) {
   const statusLabel = file.disabled ? "disabled" : file.status || "active"
-  const usageProbeRequest = getAuthFileUsageProbeRequest(file)
+  const usageRefreshPath = getAuthFileUsageRefreshPath(file)
   const inlineIdentity = file.email || file.label || file.id
   const hasDraftPriority = draft.priority.trim() !== ""
 
@@ -599,7 +580,7 @@ function AuthFileCard({
             variant="outline"
             size="sm"
             onClick={() => onQueryUsage(file)}
-            disabled={disabled || !usageProbeRequest}
+            disabled={disabled || !usageRefreshPath}
           >
             <RefreshCw size={14} className="mr-2" />
             Query usage
@@ -616,7 +597,7 @@ function AuthFileCard({
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-        <AuthFileUsageSummary file={file} canQueryUsage={Boolean(usageProbeRequest)} />
+        <AuthFileUsageSummary file={file} canQueryUsage={Boolean(usageRefreshPath)} />
 
         <div className="rounded-xl border border-border/70 bg-muted/10 p-3">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -650,7 +631,7 @@ function AuthFileCard({
               />
             </div>
             <div className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-              Lower values are preferred first. Leave the field blank to fall back to backend ordering.
+              Lower values are preferred first. Leave the field unchanged to keep the current backend ordering.
             </div>
           </div>
         </div>
@@ -660,6 +641,7 @@ function AuthFileCard({
 }
 
 function App() {
+  const isCallbackRoute = isCodexCallbackPath(window.location.pathname)
   const [connectionState, setConnectionState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle")
@@ -668,25 +650,31 @@ function App() {
     text: string
   } | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
-  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(
+  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettingsFormState>(
     DEFAULT_RUNTIME_SETTINGS,
   )
   const [apiKeysText, setApiKeysText] = useState("")
-  const [codexKeysText, setCodexKeysText] = useState("[]")
   const [authFiles, setAuthFiles] = useState<AuthFile[]>([])
   const [authFileDrafts, setAuthFileDrafts] = useState<
     Record<string, ReturnType<typeof createAuthFileDraft>>
   >({})
   const [oauthSession, setOAuthSession] = useState<{
     state: string | null
-    status: "idle" | "launching" | "wait" | "ok" | "error"
+    status: "idle" | "launching" | "pending" | "complete" | "error"
     message: string
   }>({
     state: null,
     status: "idle",
     message: "",
   })
-  const [activeSection, setActiveSection] = useState<string>("codex-keys")
+  const [callbackStatus, setCallbackStatus] = useState<{
+    status: "idle" | "submitting" | "success" | "error"
+    message: string
+  }>({
+    status: "idle",
+    message: "",
+  })
+  const [activeSection, setActiveSection] = useState<string>("api-keys")
 
   const client = useRef(createManagementClient()).current
   const observer = useRef<IntersectionObserver | null>(null)
@@ -721,72 +709,20 @@ function App() {
     await withBusy(
       "load-dashboard",
       async () => {
-        const [
-          wsAuthResult,
-          requestRetryResult,
-          maxRetryIntervalResult,
-          routingStrategyResult,
-          switchProjectResult,
-          apiKeysResult,
-          codexKeysResult,
-          authFilesResult,
-        ] = await Promise.allSettled([
-          client.getJson<{ "ws-auth": boolean }>("/ws-auth"),
-          client.getJson<{ "request-retry": number }>("/request-retry"),
-          client.getJson<{ "max-retry-interval": number }>("/max-retry-interval"),
-          client.getJson<{ strategy: string }>("/routing/strategy"),
-          client.getJson<{ "switch-project": boolean }>("/quota-exceeded/switch-project"),
-          client.getJson<{ "api-keys": string[] }>("/api-keys"),
-          client.getJson<{ "codex-api-key": unknown[] }>("/codex-api-key"),
-          client.getJson<{ files: AuthFile[] }>("/auth-files"),
+        const [runtimeSettingsResult, apiKeysResult, authFilesResult] = await Promise.all([
+          client.getJson<RuntimeSettings>("/runtime-settings"),
+          client.getJson<ApiKeysEnvelope>("/api-keys"),
+          client.getJson<AuthFilesEnvelope>("/auth-files"),
         ])
 
-        const results = [
-          wsAuthResult,
-          requestRetryResult,
-          maxRetryIntervalResult,
-          routingStrategyResult,
-          switchProjectResult,
-          apiKeysResult,
-          codexKeysResult,
-          authFilesResult,
-        ]
-
-        const firstError = results.find((r) => r.status === "rejected")
-        if (firstError && firstError.status === "rejected") {
-          throw firstError.reason
-        }
-
-        if (
-          wsAuthResult.status === "fulfilled" &&
-          requestRetryResult.status === "fulfilled" &&
-          maxRetryIntervalResult.status === "fulfilled" &&
-          routingStrategyResult.status === "fulfilled" &&
-          switchProjectResult.status === "fulfilled"
-        ) {
-          setRuntimeSettings({
-            wsAuth: wsAuthResult.value["ws-auth"],
-            requestRetry: requestRetryResult.value["request-retry"],
-            maxRetryInterval: maxRetryIntervalResult.value["max-retry-interval"],
-            routingStrategy: routingStrategyResult.value.strategy,
-            switchProject: switchProjectResult.value["switch-project"],
-          })
-        }
-
-        if (apiKeysResult.status === "fulfilled") {
-          setApiKeysText(toStringArray(apiKeysResult.value["api-keys"]).join("\n"))
-        }
-        if (codexKeysResult.status === "fulfilled") {
-          setCodexKeysText(prettyJson(toUnknownArray(codexKeysResult.value["codex-api-key"])))
-        }
-        if (authFilesResult.status === "fulfilled") {
-          setAuthFiles(authFilesResult.value.files)
-          setAuthFileDrafts(
-            Object.fromEntries(
-              authFilesResult.value.files.map((file) => [file.name, createAuthFileDraft(file)]),
-            ),
-          )
-        }
+        setRuntimeSettings(toRuntimeSettingsFormState(runtimeSettingsResult))
+        setApiKeysText(toStringArray(apiKeysResult.items).join("\n"))
+        setAuthFiles(authFilesResult.items)
+        setAuthFileDrafts(
+          Object.fromEntries(
+            authFilesResult.items.map((file) => [file.name, createAuthFileDraft(file)]),
+          ),
+        )
 
         setConnectionState("ready")
       },
@@ -797,8 +733,73 @@ function App() {
   }, [client, withBusy])
 
   useEffect(() => {
+    if (isCallbackRoute) {
+      return
+    }
     void loadDashboard(false)
-  }, [loadDashboard])
+  }, [isCallbackRoute, loadDashboard])
+
+  useEffect(() => {
+    if (!isCallbackRoute) {
+      return
+    }
+
+    const searchParams = new URLSearchParams(window.location.search)
+    const state = searchParams.get("state")?.trim() ?? ""
+
+    if (state === "") {
+      setCallbackStatus({
+        status: "error",
+        message: "Missing OAuth state in callback URL.",
+      })
+      return
+    }
+
+    const callbackRequest: OAuthSessionCallbackRequest = {
+      provider: OAUTH_PROVIDER,
+      state,
+      redirect_url: window.location.href,
+    }
+
+    const code = searchParams.get("code")?.trim()
+    const error = searchParams.get("error")?.trim()
+    const errorDescription = searchParams.get("error_description")?.trim()
+
+    if (code) {
+      callbackRequest.code = code
+    }
+    if (error) {
+      callbackRequest.error = error
+    }
+    if (errorDescription) {
+      callbackRequest.error_description = errorDescription
+    }
+
+    setCallbackStatus({
+      status: "submitting",
+      message: "Finishing OAuth sign-in...",
+    })
+
+    void client
+      .postJson<StatusOk & { auth_file?: string }>(
+        `/oauth-sessions/${encodeURIComponent(state)}/callback`,
+        callbackRequest,
+      )
+      .then((response) => {
+        setCallbackStatus({
+          status: "success",
+          message: response.auth_file
+            ? `Authentication linked to ${response.auth_file}. You can close this window.`
+            : "Authentication linked. You can close this window.",
+        })
+      })
+      .catch((error: unknown) => {
+        setCallbackStatus({
+          status: "error",
+          message: getErrorMessage(error),
+        })
+      })
+  }, [client, isCallbackRoute])
 
   const updateActiveSectionFromScroll = useCallback(() => {
     const anchorOffset = 140
@@ -896,13 +897,10 @@ function App() {
     await withBusy(
       "save-runtime",
       async () => {
-        await Promise.all([
-          client.putJson<StatusOk>("/ws-auth", { value: runtimeSettings.wsAuth }),
-          client.putJson<StatusOk>("/request-retry", { value: runtimeSettings.requestRetry }),
-          client.putJson<StatusOk>("/max-retry-interval", { value: runtimeSettings.maxRetryInterval }),
-          client.putJson<StatusOk>("/routing/strategy", { value: runtimeSettings.routingStrategy }),
-          client.putJson<StatusOk>("/quota-exceeded/switch-project", { value: runtimeSettings.switchProject }),
-        ])
+        await client.putJson<StatusOk>(
+          "/runtime-settings",
+          toRuntimeSettingsPayload(runtimeSettings),
+        )
         await loadDashboard(false)
       },
       "Runtime settings saved",
@@ -913,34 +911,25 @@ function App() {
     await withBusy(
       "save-api-keys",
       async () => {
-        await client.putJson<StatusOk>("/api-keys", parseApiKeys(apiKeysText))
+        await client.putJson<StatusOk>("/api-keys", {
+          items: parseApiKeys(apiKeysText),
+        })
         await loadDashboard(false)
       },
       "API keys updated",
     )
   }
 
-  async function saveCodexKeys() {
-    await withBusy(
-      "save-codex-keys",
-      async () => {
-        await client.putJson<StatusOk>("/codex-api-key", parseJsonText(codexKeysText, "Codex keys"))
-        await loadDashboard(false)
-      },
-      "Codex keys updated",
-    )
-  }
-
   const refreshOAuthStatus = useCallback(async (state: string) => {
     try {
-      const response = await client.getJson<{ status: string; error?: string }>(
-        `/get-auth-status?state=${encodeURIComponent(state)}`,
+      const response = await client.getJson<OAuthSessionStatusResponse>(
+        `/oauth-sessions/${encodeURIComponent(state)}`,
       )
 
-      if (response.status === "wait") {
+      if (response.status === "pending") {
         setOAuthSession({
           state,
-          status: "wait",
+          status: "pending",
           message: "Waiting for browser confirmation",
         })
         return
@@ -957,8 +946,10 @@ function App() {
 
       setOAuthSession({
         state: null,
-        status: "ok",
-        message: "OAuth session connected",
+        status: "complete",
+        message: response.auth_file
+          ? `OAuth session connected: ${response.auth_file}`
+          : "OAuth session connected",
       })
       await loadDashboard(false)
     } catch (error) {
@@ -971,7 +962,7 @@ function App() {
   }, [client, loadDashboard])
 
   useEffect(() => {
-    if (oauthSession.status !== "wait" || !oauthSession.state) {
+    if (oauthSession.status !== "pending" || !oauthSession.state) {
       return undefined
     }
 
@@ -986,9 +977,7 @@ function App() {
 
   async function downloadAuthFile(file: AuthFile) {
     await withBusy("download-auth", async () => {
-      const blob = await client.getBlob(
-        `/auth-files/download?name=${encodeURIComponent(file.name)}`,
-      )
+      const blob = await client.getBlob(`${getAuthFilePath(file.name)}/content`)
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
@@ -1008,8 +997,13 @@ function App() {
     })
 
     await withBusy("oauth-start", async () => {
-      const res = await client.getJson<{ status: string; url: string; state: string }>(
-        "/codex-auth-url?is_webui=true",
+      const request: OAuthSessionCreateRequest = {
+        provider: OAUTH_PROVIDER,
+        callback_origin: window.location.origin,
+      }
+      const res = await client.postJson<OAuthSessionCreateResponse>(
+        "/oauth-sessions",
+        request,
       )
 
       const popup = window.open(res.url, "_blank")
@@ -1024,7 +1018,7 @@ function App() {
 
       setOAuthSession({
         state: res.state,
-        status: "wait",
+        status: "pending",
         message: "Opening browser sign-in...",
       })
       await refreshOAuthStatus(res.state)
@@ -1035,9 +1029,13 @@ function App() {
     const draft = authFileDrafts[file.name] ?? createAuthFileDraft(file)
     const normalizedPriority = draft.priority.trim() === "" ? undefined : Number(draft.priority)
 
+    if (normalizedPriority === undefined) {
+      setFeedback({ tone: "info", text: "No auth file changes to save" })
+      return
+    }
+
     await withBusy(`save-auth-fields:${file.name}`, async () => {
-      await client.patchJson<StatusOk>("/auth-files/fields", {
-        name: file.name,
+      await client.patchJson<StatusOk>(getAuthFilePath(file.name), {
         priority: normalizedPriority,
       })
       await loadDashboard(false)
@@ -1045,13 +1043,13 @@ function App() {
   }
 
   async function queryAuthFileUsage(file: AuthFile) {
-    const request = getAuthFileUsageProbeRequest(file)
-    if (!request) {
+    const path = getAuthFileUsageRefreshPath(file)
+    if (!path) {
       return
     }
 
     await withBusy(`query-auth-usage:${file.name}`, async () => {
-      const response = await client.postJson<unknown>("/api-call", request)
+      const response = await client.postJson<unknown>(path)
       setAuthFiles((current) =>
         current.map((currentFile) =>
           currentFile.id === file.id
@@ -1064,10 +1062,9 @@ function App() {
 
   async function queryAllAuthFileUsage() {
     const filesWithProbes = authFiles
-      .map((file) => ({ file, request: getAuthFileUsageProbeRequest(file) }))
+      .map((file) => ({ file, path: getAuthFileUsageRefreshPath(file) }))
       .filter(
-        (entry): entry is { file: AuthFile; request: NonNullable<ReturnType<typeof getAuthFileUsageProbeRequest>> } =>
-          Boolean(entry.request),
+        (entry): entry is { file: AuthFile; path: string } => Boolean(entry.path),
       )
 
     if (!filesWithProbes.length) {
@@ -1076,9 +1073,9 @@ function App() {
 
     await withBusy("query-all-auth-usage", async () => {
       const responses = await Promise.all(
-        filesWithProbes.map(async ({ file, request }) => ({
+        filesWithProbes.map(async ({ file, path }) => ({
           id: file.id,
-          usage: await client.postJson<unknown>("/api-call", request),
+          usage: await client.postJson<unknown>(path),
         })),
       )
 
@@ -1095,8 +1092,7 @@ function App() {
 
   async function toggleAuthFileDisabled(file: AuthFile) {
     await withBusy(`toggle-auth:${file.name}`, async () => {
-      await client.patchJson<StatusOk>("/auth-files/status", {
-        name: file.name,
+      await client.patchJson<StatusOk>(getAuthFilePath(file.name), {
         disabled: !file.disabled,
       })
       await loadDashboard(false)
@@ -1122,7 +1118,53 @@ function App() {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
-  const probeCapableAuthFiles = authFiles.filter((file) => getAuthFileUsageProbeRequest(file))
+  const probeCapableAuthFiles = authFiles.filter((file) => getAuthFileUsageRefreshPath(file))
+
+  if (isCallbackRoute) {
+    return (
+      <div className="min-h-screen bg-muted/30 text-foreground font-sans selection:bg-primary/15">
+        <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/90 backdrop-blur-xl">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+                <LayoutDashboard size={22} />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold tracking-tight text-foreground">Cockpit</h1>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Frontend-owned OAuth callback</span>
+                  {callbackStatus.status !== "idle" ? (
+                    <StatusPill
+                      label={callbackStatus.status}
+                      tone={
+                        callbackStatus.status === "success"
+                          ? "success"
+                          : callbackStatus.status === "error"
+                            ? "destructive"
+                            : "warning"
+                      }
+                    />
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+          <SectionCard
+            id="oauth-callback"
+            title="Codex Callback"
+            description="Forwarding the OAuth redirect back into the management session."
+          >
+            <div className="rounded-2xl border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
+              {callbackStatus.message || "Waiting for callback data..."}
+            </div>
+          </SectionCard>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-muted/30 text-foreground font-sans selection:bg-primary/15">
@@ -1192,6 +1234,7 @@ function App() {
               </p>
               {NAV_ITEMS.map((item) => (
                 <button
+                  type="button"
                   key={item.id}
                   onClick={() => scrollToSection(item.id)}
                   aria-current={activeSection === item.id ? "page" : undefined}
@@ -1214,59 +1257,6 @@ function App() {
           </aside>
 
           <main className="space-y-10">
-            <section id="codex-keys" className="scroll-mt-24">
-              <JsonEditorCard
-                id="codex-keys-editor"
-                title="Codex Keys"
-                description="Configure your Codex providers. The backend automatically handles base-url normalization."
-                value={codexKeysText}
-                onChange={setCodexKeysText}
-                onRefresh={() => void loadDashboard(false)}
-                onSave={() => void saveCodexKeys()}
-                disabled={busyAction !== null || connectionState !== "ready"}
-                placeholder={CODEX_KEYS_PLACEHOLDER}
-                helper={
-                  <div className="space-y-4 rounded-2xl border border-border/70 bg-muted/20 p-4">
-                    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                      <div className="space-y-2">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                          Codex provider schema
-                        </p>
-                        <p className="text-sm leading-relaxed text-foreground">
-                          Paste the local provider array here. Keep Codex Keys as the top-level source of truth for Codex provider configuration.
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-3 text-[11px] leading-relaxed text-muted-foreground">
-                        Required: <code className="font-medium text-primary">api-key</code>, <code className="font-medium text-primary">base-url</code>.<br />
-                        Optional: <code className="font-medium text-primary">priority</code>, <code className="font-medium text-primary">headers</code>, <code className="font-medium text-primary">websockets</code>.
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        Redacted examples
-                      </p>
-                      <div className="grid gap-3 xl:grid-cols-2">
-                        {CODEX_KEYS_EXAMPLES.map((example) => (
-                          <div
-                            key={example.title}
-                            className="rounded-xl border border-border/70 bg-background/80 p-3"
-                          >
-                            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                              {example.title}
-                            </p>
-                            <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-foreground">
-                              {example.config}
-                            </pre>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                }
-                saveLabel="Update Codex"
-              />
-            </section>
-
             <div className="grid gap-8">
               <section id="api-keys" className="scroll-mt-24">
                 <SectionCard
@@ -1453,11 +1443,11 @@ function App() {
                           <StatusPill
                             label={oauthSession.status}
                             tone={
-                              oauthSession.status === "ok"
+                              oauthSession.status === "complete"
                                 ? "success"
                                 : oauthSession.status === "error"
                                   ? "destructive"
-                                  : oauthSession.status === "wait" || oauthSession.status === "launching"
+                                  : oauthSession.status === "pending" || oauthSession.status === "launching"
                                     ? "warning"
                                     : "default"
                             }
@@ -1486,13 +1476,13 @@ function App() {
                         Usage-ready files
                       </div>
                       <div className="mt-1 text-2xl font-semibold text-foreground">{probeCapableAuthFiles.length}</div>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        {probeCapableAuthFiles.length > 0
-                          ? "Ready for per-file or batch usage refresh."
-                          : "No auth files expose usage probes."}
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          {probeCapableAuthFiles.length > 0
+                            ? "Ready for per-file or batch usage refresh."
+                            : "No auth files expose usage refresh."}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
                   {authFiles.length > 0 ? (
                     authFiles.map((file) => (

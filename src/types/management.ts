@@ -1,22 +1,23 @@
 export const MANAGEMENT_BASE_PATH = "/v0/management"
 
-export type JsonPrimitive = string | number | boolean | null
-export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
-
-export interface ManagementApiCallRequest {
-  authIndex?: string
-  method: string
-  url: string
-  header?: Record<string, string>
-  body?: JsonValue
+export interface RuntimeSettings {
+  "ws-auth": boolean
+  "request-retry": number
+  "max-retry-interval": number
+  "routing-strategy": string
+  "switch-project": boolean
 }
 
-export interface RuntimeSettings {
+export interface RuntimeSettingsFormState {
   wsAuth: boolean
   requestRetry: number
   maxRetryInterval: number
   routingStrategy: string
   switchProject: boolean
+}
+
+export interface ApiKeysEnvelope {
+  items: string[]
 }
 
 export interface StatusOk {
@@ -53,31 +54,39 @@ export interface AuthFile {
     [key: string]: unknown
   }
   usage?: Record<string, unknown>
-  usage_probe?: ManagementApiCallRequest
+  usage_available?: boolean
 }
 
-export interface ModelDefinition {
-  id: string
-  display_name?: string
-  version?: string
-  description?: string
-  context_length?: number
-  max_completion_tokens?: number
-  supported_parameters?: string[]
-  thinking?: {
-    levels?: string[]
-  }
-  type?: string
-  owned_by?: string
+export interface AuthFilesEnvelope {
+  items: AuthFile[]
 }
 
-export interface OAuthStartResponse {
+export type OAuthProvider = "codex"
+
+export interface OAuthSessionCreateRequest {
+  provider: OAuthProvider
+  callback_origin: string
+}
+
+export interface OAuthSessionCreateResponse {
   status: string
   url: string
   state: string
 }
 
-export interface OAuthStatusResponse {
-  status: string
+export interface OAuthSessionStatusResponse {
+  status: "pending" | "complete" | "error"
+  provider: OAuthProvider
+  state: string
   error?: string
+  auth_file?: string
+}
+
+export interface OAuthSessionCallbackRequest {
+  provider: OAuthProvider
+  state?: string
+  redirect_url?: string
+  code?: string
+  error?: string
+  error_description?: string
 }

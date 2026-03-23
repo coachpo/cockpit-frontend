@@ -24,10 +24,6 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
-      '/codex/callback': {
-        target: localBackendTarget,
-        changeOrigin: true,
-      },
     },
   },
   resolve: {
