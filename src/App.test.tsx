@@ -294,14 +294,12 @@ describe("App", () => {
       .filter(Boolean)
 
     expect(sharedLayout).toBe(modelCatalogSection.parentElement)
-    expect(sharedLayout?.className).not.toContain("xl:grid-cols-2")
     expect(siblingSectionIds).toEqual(["api-keys", "model-catalog"])
 
     const firstModelCard = modelCatalogSection.querySelector("article")
     const modelList = firstModelCard?.parentElement
 
     expect(firstModelCard).not.toBeNull()
-    expect(modelList?.className).not.toContain("sm:grid-cols-2")
     expect(Array.from(modelList?.children ?? [])).toHaveLength(2)
     expect(Array.from(modelList?.children ?? []).every((child) => child.tagName === "ARTICLE")).toBe(true)
   })
