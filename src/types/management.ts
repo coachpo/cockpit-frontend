@@ -29,6 +29,8 @@ export interface AuthFile {
   name: string
   type?: string
   provider?: string
+  prefix?: string
+  proxy_url?: string
   label?: string
   email?: string
   status?: string
@@ -59,6 +61,14 @@ export interface AuthFile {
 export interface ModelDefinition {
   id: string
   display_name?: string
+  version?: string
+  description?: string
+  context_length?: number
+  max_completion_tokens?: number
+  supported_parameters?: string[]
+  thinking?: {
+    levels?: string[]
+  }
   type?: string
   owned_by?: string
 }

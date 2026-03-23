@@ -16,6 +16,7 @@ interface JsonEditorCardProps {
   disabled?: boolean
   helper?: ReactNode
   saveLabel?: string
+  placeholder?: string
 }
 
 export function JsonEditorCard({
@@ -29,6 +30,7 @@ export function JsonEditorCard({
   disabled = false,
   helper,
   saveLabel = "Save",
+  placeholder,
 }: JsonEditorCardProps) {
   return (
     <SectionCard
@@ -53,6 +55,7 @@ export function JsonEditorCard({
           onChange={(event) => onChange(event.target.value)}
           className="min-h-64 font-mono text-xs"
           spellCheck={false}
+          placeholder={placeholder}
         />
       </div>
     </SectionCard>

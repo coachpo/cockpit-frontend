@@ -19,7 +19,7 @@ describe("createManagementClient", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await createManagementClient("secret").getJson("/status")
+    await createManagementClient().getJson("/status")
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/v0/management/status",
@@ -29,7 +29,7 @@ describe("createManagementClient", () => {
     )
   })
 
-  it("sends the management key as a Bearer token", async () => {
+  it("does not send an Authorization header", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ status: "ok" }), {
         status: 200,
@@ -38,12 +38,12 @@ describe("createManagementClient", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await createManagementClient("my-secret-key").getJson("/status")
+    await createManagementClient().getJson("/status")
 
     const callArgs = fetchMock.mock.calls[0]
     expect(callArgs).toBeDefined()
     const requestInit = callArgs![1] as RequestInit
     const headers = requestInit.headers as Headers
-    expect(headers.get("Authorization")).toBe("Bearer my-secret-key")
+    expect(headers.get("Authorization")).toBeNull()
   })
 })

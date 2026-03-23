@@ -1,28 +1,29 @@
-import { useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  LayoutDashboard,
+  Settings2,
+  Key,
+  Database,
+  BookOpen,
+  RefreshCw,
+  Save,
+  ExternalLink,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  FileText,
+  Download,
+  ShieldCheck,
+  Cpu,
+  Zap,
+  Brain,
+} from "lucide-react"
 
 import { JsonEditorCard } from "@/components/json-editor-card"
 import { SectionCard } from "@/components/section-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
 import {
   Select,
   SelectContent,
@@ -31,43 +32,25 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { getAuthFileStatusLabel } from "@/lib/auth-file-display"
-import {
-  getAuthFileUsageProbeRequest,
-  mergeAuthFileUsageResponse,
-} from "@/lib/auth-file-usage"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import {
   ManagementRequestError,
   createManagementClient,
 } from "@/lib/management-api"
-import { isManagementActionDisabled } from "@/lib/management-access"
 import type {
   AuthFile,
   ModelDefinition,
-  OAuthStartResponse,
-  OAuthStatusResponse,
   RuntimeSettings,
   StatusOk,
 } from "@/types/management"
 
 const NAV_ITEMS = [
-  { id: "access", label: "Access" },
-  { id: "runtime", label: "Runtime" },
-  { id: "api-keys", label: "API Keys" },
-  { id: "codex-keys", label: "Codex Keys" },
-  { id: "auth-files", label: "Auth Files" },
+  { id: "codex-keys", label: "Codex Keys", icon: Key },
+  { id: "api-keys", label: "API Keys", icon: Database },
+  { id: "model-catalog", label: "Model Catalog", icon: BookOpen },
+  { id: "runtime", label: "Runtime Settings", icon: Settings2 },
+  { id: "auth-files", label: "Auth Files", icon: FileText },
 ] as const
-
-
 
 const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = {
   wsAuth: false,
@@ -76,6 +59,17 @@ const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = {
   routingStrategy: "round-robin",
   switchProject: false,
 }
+
+const CODEX_KEYS_PLACEHOLDER = `[
+  {
+    "api-key": "sk-...",
+    "base-url": "https://api.openai.com/v1",
+    "priority": 1,
+    "headers": {
+      "OpenAI-Organization": "org-..."
+    }
+  }
+]`
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ManagementRequestError) {
@@ -110,169 +104,11 @@ function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return []
   }
-
   return value.filter((item): item is string => typeof item === "string")
 }
 
 function toUnknownArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
-}
-
-
-function formatDate(value?: string): string {
-  if (!value) {
-    return "—"
-  }
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-
-  return parsed.toLocaleString()
-}
-
-function sleep(milliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
-}
-
-function toTitleLabel(value?: string): string {
-  if (!value) {
-    return "—"
-  }
-
-  return value
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ")
-}
-
-function formatUsageTimestamp(value?: string): string {
-  if (!value) {
-    return "—"
-  }
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(parsed)
-}
-
-function getAuthFileTitle(file: AuthFile): string {
-  return file.account ?? file.email ?? file.label ?? file.name
-}
-
-function getAuthFilePlan(file: AuthFile): string {
-  return toTitleLabel(file.id_token?.plan_type ?? file.account_type)
-}
-
-function getAuthFileSubscription(file: AuthFile): string | null {
-  const subscription = file.id_token?.subscription
-  return typeof subscription === "string" && subscription.trim() !== ""
-    ? toTitleLabel(subscription)
-    : null
-}
-
-function getUsagePercent(value: unknown): number | null {
-  const numericValue =
-    typeof value === "string" && value.trim() !== ""
-      ? Number(value)
-      : typeof value === "number"
-        ? value
-        : Number.NaN
-
-  if (Number.isNaN(numericValue)) {
-    return null
-  }
-
-  const percent = numericValue <= 1 ? numericValue * 100 : numericValue
-  return Math.max(0, Math.min(100, percent))
-}
-
-function getAuthFileUsageRows(file: AuthFile): Array<{
-  label: string
-  percent: number | null
-  value?: string
-  resetAt?: string
-}> {
-  const usage = file.usage
-  if (!usage || typeof usage !== "object") {
-    return []
-  }
-
-  const limits = Array.isArray((usage as { limits?: unknown[] }).limits)
-    ? (usage as { limits: Array<Record<string, unknown>> }).limits
-    : []
-
-  if (limits.length > 0) {
-    return limits.slice(0, 3).map((limit, index) => ({
-      label:
-        (typeof limit.label === "string" && limit.label) ||
-        (typeof limit.name === "string" && limit.name) ||
-        (typeof limit.limit_name === "string" && limit.limit_name) ||
-        `Usage ${index + 1}`,
-      percent: getUsagePercent(limit.percent ?? limit.percentage ?? limit.used_ratio),
-      value:
-        typeof limit.value === "string"
-          ? limit.value
-          : typeof limit.used === "string"
-            ? limit.used
-            : undefined,
-      resetAt:
-        (typeof limit.reset_at === "string" && limit.reset_at) ||
-        (typeof limit.next_reset_at === "string" && limit.next_reset_at) ||
-        undefined,
-    }))
-  }
-
-  return Object.entries(usage)
-    .filter(([, value]) => value != null)
-    .slice(0, 3)
-    .map(([label, value]) => {
-      if (typeof value === "object" && value !== null) {
-        const entry = value as Record<string, unknown>
-        return {
-          label: toTitleLabel(label),
-          percent: getUsagePercent(entry.percent ?? entry.percentage ?? entry.used_ratio),
-          value:
-            typeof entry.value === "string"
-              ? entry.value
-              : typeof entry.used === "string"
-                ? entry.used
-                : undefined,
-          resetAt:
-            (typeof entry.reset_at === "string" && entry.reset_at) ||
-            (typeof entry.next_reset_at === "string" && entry.next_reset_at) ||
-            undefined,
-        }
-      }
-
-      return {
-        label: toTitleLabel(label),
-        percent: getUsagePercent(value),
-        value: typeof value === "string" ? value : String(value),
-      }
-    })
-}
-
-function UsageBar({ percent }: { percent: number | null }) {
-  return (
-    <div className="h-2 rounded-full bg-muted">
-      <div
-        className="h-full rounded-full bg-primary transition-[width]"
-        style={{ width: `${percent ?? 0}%`, opacity: percent === null ? 0 : 1 }}
-      />
-    </div>
-  )
 }
 
 function StatusPill({
@@ -284,11 +120,11 @@ function StatusPill({
 }) {
   const className =
     tone === "success"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
       : tone === "warning"
-        ? "border-amber-200 bg-amber-50 text-amber-700"
+        ? "border-amber-500/20 bg-amber-500/10 text-amber-700"
         : tone === "destructive"
-          ? "border-red-200 bg-red-50 text-red-700"
+          ? "border-destructive/20 bg-destructive/10 text-destructive"
           : "border-border bg-muted text-muted-foreground"
 
   return (
@@ -308,71 +144,352 @@ function SettingField({
   children: ReactNode
 }) {
   return (
-    <div className="space-y-2 rounded-lg border border-border/60 p-3">
+    <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-4 shadow-sm shadow-black/0 transition-colors hover:bg-muted/30">
       <div className="space-y-1">
         <div className="text-sm font-medium text-foreground">{label}</div>
-        <div className="text-sm text-muted-foreground">{description}</div>
+        <div className="text-xs leading-relaxed text-muted-foreground">{description}</div>
       </div>
       {children}
     </div>
   )
 }
 
+function createAuthFileDraft(file: AuthFile) {
+  return {
+    prefix: file.prefix ?? "",
+    priority: file.priority != null ? String(file.priority) : "",
+    note: file.note ?? "",
+  }
+}
+
+function formatCompactNumber(value?: number): string | null {
+  if (!value) {
+    return null
+  }
+
+  if (value >= 1000) {
+    return `${Math.round(value / 1000)}k`
+  }
+
+  return String(value)
+}
+
+function ModelCard({ model }: { model: ModelDefinition }) {
+  const contextLength = formatCompactNumber(model.context_length)
+  const completionLength = formatCompactNumber(model.max_completion_tokens)
+
+  return (
+    <article className="group relative flex h-full flex-col gap-4 rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/10">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold leading-none text-foreground">
+              {model.display_name || model.id}
+            </h3>
+            {model.version ? (
+              <Badge variant="secondary" className="border border-border/60 bg-muted/60 text-[10px] font-semibold text-foreground">
+                v{model.version}
+              </Badge>
+            ) : null}
+          </div>
+          <p className="text-[11px] font-medium tracking-[0.22em] text-muted-foreground uppercase">
+            {model.id}
+          </p>
+        </div>
+        <div className="rounded-xl border border-primary/15 bg-primary/5 p-2 text-primary transition-colors group-hover:bg-primary/10">
+          <Brain size={16} />
+        </div>
+      </div>
+
+      <p className="min-h-10 text-sm leading-relaxed text-muted-foreground">
+        {model.description || "Catalog metadata available for this model."}
+      </p>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+          <div className="mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <Cpu size={12} />
+            Context window
+          </div>
+          <div className="text-sm font-semibold text-foreground">
+            {contextLength ? `${contextLength} tokens` : "Not provided"}
+          </div>
+        </div>
+        <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+          <div className="mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <Zap size={12} />
+            Max output
+          </div>
+          <div className="text-sm font-semibold text-foreground">
+            {completionLength ? `${completionLength} tokens` : "Not provided"}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Supported parameters
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {model.supported_parameters?.length ? (
+              model.supported_parameters.map((parameter) => (
+                <Badge key={parameter} variant="outline" className="border-primary/20 bg-primary/5 text-[11px] text-primary">
+                  {parameter}
+                </Badge>
+              ))
+            ) : (
+              <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                No parameter overrides listed
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Thinking levels
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {model.thinking?.levels?.length ? (
+              model.thinking.levels.map((level) => (
+                <Badge key={level} variant="secondary" className="border border-amber-500/20 bg-amber-500/10 text-[11px] text-amber-700">
+                  {level}
+                </Badge>
+              ))
+            ) : (
+              <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                Default reasoning only
+              </Badge>
+            )}
+          </div>
+        </div>
+      </div>
+
+    </article>
+  )
+}
+
+function AuthFileCard({
+  file,
+  draft,
+  models,
+  disabled,
+  onDownload,
+  onDraftChange,
+  onSaveDetails,
+  onToggleDisabled,
+  onLoadModels,
+}: {
+  file: AuthFile
+  draft: ReturnType<typeof createAuthFileDraft>
+  models?: ModelDefinition[]
+  disabled: boolean
+  onDownload: (file: AuthFile) => void
+  onDraftChange: (name: string, field: "prefix" | "priority" | "note", value: string) => void
+  onSaveDetails: (file: AuthFile) => void
+  onToggleDisabled: (file: AuthFile) => void
+  onLoadModels: (file: AuthFile) => void
+}) {
+  const statusLabel = file.disabled ? "disabled" : file.status || "active"
+
+  return (
+    <article className="space-y-4 rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5 transition-all hover:border-primary/20 hover:shadow-lg hover:shadow-primary/8">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-muted/30 text-primary">
+            <FileText size={18} />
+          </div>
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold text-foreground">{file.name}</h3>
+              <StatusPill
+                label={statusLabel}
+                tone={file.status === "error" ? "destructive" : file.disabled ? "warning" : "success"}
+              />
+              {file.provider ? (
+                <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                  {file.provider}
+                </Badge>
+              ) : null}
+              {file.source ? (
+                <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                  {file.source}
+                </Badge>
+              ) : null}
+              {file.priority != null ? (
+                <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                  Priority {file.priority}
+                </Badge>
+              ) : null}
+            </div>
+
+            <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
+              <div>{file.email || file.label || file.id}</div>
+              <div>{file.status_message || "Ready for local use"}</div>
+            </div>
+
+            {draft.note ? (
+              <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                {draft.note}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 xl:justify-end">
+          <Button variant="outline" size="sm" onClick={() => onLoadModels(file)} disabled={disabled}>
+            <BookOpen size={14} className="mr-2" />
+            View file models
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => onDownload(file)} disabled={disabled}>
+            <Download size={14} className="mr-2" />
+            Download JSON
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => onToggleDisabled(file)} disabled={disabled}>
+            <ShieldCheck size={14} className="mr-2" />
+            {file.disabled ? "Enable auth file" : "Disable auth file"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3">
+            <label htmlFor={`auth-prefix-${file.name}`} className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Prefix
+            </label>
+            <Input
+              id={`auth-prefix-${file.name}`}
+              aria-label={`Prefix for ${file.name}`}
+              value={draft.prefix}
+              onChange={(event) => onDraftChange(file.name, "prefix", event.target.value)}
+              className="bg-background"
+            />
+          </div>
+          <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3">
+            <label htmlFor={`auth-priority-${file.name}`} className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Priority
+            </label>
+            <Input
+              id={`auth-priority-${file.name}`}
+              type="number"
+              min={0}
+              aria-label={`Priority for ${file.name}`}
+              value={draft.priority}
+              onChange={(event) => onDraftChange(file.name, "priority", event.target.value)}
+              className="bg-background"
+            />
+          </div>
+          <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3 sm:col-span-2">
+            <label htmlFor={`auth-note-${file.name}`} className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Note
+            </label>
+            <Textarea
+              id={`auth-note-${file.name}`}
+              aria-label={`Note for ${file.name}`}
+              value={draft.note}
+              onChange={(event) => onDraftChange(file.name, "note", event.target.value)}
+              className="min-h-28 bg-background"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-border/70 bg-muted/10 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Models for {file.name}
+              </div>
+              <div className="text-sm text-foreground">
+                {models?.length
+                  ? "Registered models exposed by this auth file."
+                  : "Load file-specific models to inspect the runtime catalog."}
+              </div>
+            </div>
+            <Button size="sm" onClick={() => onSaveDetails(file)} disabled={disabled}>
+              <Save size={14} className="mr-2" />
+              Save details
+            </Button>
+          </div>
+
+          {models?.length ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {models.map((model) => (
+                <div key={model.id} className="rounded-xl border border-border/70 bg-background p-3 shadow-sm shadow-black/5">
+                  <div className="text-sm font-semibold text-foreground">{model.display_name || model.id}</div>
+                  <div className="text-xs text-muted-foreground">{model.id}</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {model.owned_by ? (
+                      <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                        {model.owned_by}
+                      </Badge>
+                    ) : null}
+                    {model.type ? (
+                      <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                        {model.type}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-background/70 p-4 text-sm text-muted-foreground">
+              No file-specific models loaded yet.
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
+  )
+}
+
 function App() {
-  const [managementKey, setManagementKey] = useState("")
   const [connectionState, setConnectionState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle")
-  const [feedback, setFeedback] = useState<
-    | {
-        tone: "success" | "error" | "info"
-        text: string
-      }
-    | null
-  >(null)
+  const [feedback, setFeedback] = useState<{
+    tone: "success" | "error" | "info"
+    text: string
+  } | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(
     DEFAULT_RUNTIME_SETTINGS,
   )
   const [apiKeysText, setApiKeysText] = useState("")
   const [codexKeysText, setCodexKeysText] = useState("[]")
+  const [models, setModels] = useState<ModelDefinition[]>([])
   const [authFiles, setAuthFiles] = useState<AuthFile[]>([])
-  const authFilesLoadIdRef = useRef(0)
-
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
-  const [uploadName, setUploadName] = useState("")
-  const [uploadPayload, setUploadPayload] = useState("{}")
-
-  const [fieldEditorOpen, setFieldEditorOpen] = useState(false)
-  const [editingAuthName, setEditingAuthName] = useState("")
-  const [editingAuthPrefix, setEditingAuthPrefix] = useState("")
-  const [editingAuthProxyUrl, setEditingAuthProxyUrl] = useState("")
-  const [editingAuthPriority, setEditingAuthPriority] = useState("")
-  const [editingAuthNote, setEditingAuthNote] = useState("")
-
-  const [authModelsOpen, setAuthModelsOpen] = useState(false)
-  const [authModelsTitle, setAuthModelsTitle] = useState("")
-  const [authModels, setAuthModels] = useState<ModelDefinition[]>([])
-
-  const [oauthStatus, setOauthStatus] = useState<
-    OAuthStatusResponse & { url?: string; state?: string }
-  >({ status: "idle" })
-
-  const [modelCatalogChannel, setModelCatalogChannel] = useState("codex")
-  const [modelCatalogText, setModelCatalogText] = useState("[]")
-
-  const accessActionDisabled = isManagementActionDisabled({
-    busyAction,
-    managementKey,
+  const [authFileDrafts, setAuthFileDrafts] = useState<
+    Record<string, ReturnType<typeof createAuthFileDraft>>
+  >({})
+  const [authFileModels, setAuthFileModels] = useState<Record<string, ModelDefinition[]>>({})
+  const [oauthSession, setOAuthSession] = useState<{
+    state: string | null
+    status: "idle" | "launching" | "wait" | "ok" | "error"
+    message: string
+  }>({
+    state: null,
+    status: "idle",
+    message: "OAuth is idle until you start a new browser flow.",
   })
+  const [activeSection, setActiveSection] = useState<string>("codex-keys")
 
-  async function withBusy<T>(
+  const client = useRef(createManagementClient()).current
+  const observer = useRef<IntersectionObserver | null>(null)
+  const activeSectionRef = useRef(activeSection)
+
+  useEffect(() => {
+    activeSectionRef.current = activeSection
+  }, [activeSection])
+
+  const withBusy = useCallback(async function withBusy<T>(
     action: string,
     work: () => Promise<T>,
     successMessage?: string,
   ) {
     setBusyAction(action)
-
     try {
       const result = await work()
       if (successMessage) {
@@ -385,45 +502,10 @@ function App() {
     } finally {
       setBusyAction((current) => (current === action ? null : current))
     }
-  }
+  }, [])
 
-  async function enrichAuthFilesUsage(
-    client: ReturnType<typeof createManagementClient>,
-    files: AuthFile[],
-    loadId: number,
-  ) {
-    const enrichedFiles = await Promise.allSettled(
-      files.map(async (file) => {
-        const usageProbe = getAuthFileUsageProbeRequest(file)
-        if (!usageProbe) {
-          return file
-        }
-
-        try {
-          const usageResponse = await client.postJson<unknown>("/api-call", usageProbe)
-          return mergeAuthFileUsageResponse(file, usageResponse)
-        } catch {
-          return file
-        }
-      }),
-    )
-
-    if (authFilesLoadIdRef.current !== loadId) {
-      return
-    }
-
-    setAuthFiles(
-      enrichedFiles.map((result, index) =>
-        result.status === "fulfilled" ? result.value : files[index],
-      ),
-    )
-  }
-
-  async function loadDashboard(showSuccess: boolean) {
-    const loadId = ++authFilesLoadIdRef.current
-    const client = createManagementClient(managementKey)
+  const loadDashboard = useCallback(async (showSuccess: boolean) => {
     setConnectionState("loading")
-
     await withBusy(
       "load-dashboard",
       async () => {
@@ -435,95 +517,186 @@ function App() {
           switchProjectResult,
           apiKeysResult,
           codexKeysResult,
+          modelCatalogResult,
           authFilesResult,
         ] = await Promise.allSettled([
           client.getJson<{ "ws-auth": boolean }>("/ws-auth"),
           client.getJson<{ "request-retry": number }>("/request-retry"),
-          client.getJson<{ "max-retry-interval": number }>(
-            "/max-retry-interval",
-          ),
+          client.getJson<{ "max-retry-interval": number }>("/max-retry-interval"),
           client.getJson<{ strategy: string }>("/routing/strategy"),
-          client.getJson<{ "switch-project": boolean }>(
-            "/quota-exceeded/switch-project",
-          ),
+          client.getJson<{ "switch-project": boolean }>("/quota-exceeded/switch-project"),
           client.getJson<{ "api-keys": string[] }>("/api-keys"),
           client.getJson<{ "codex-api-key": unknown[] }>("/codex-api-key"),
+          client.getJson<{ models: ModelDefinition[] }>("/model-definitions/codex"),
           client.getJson<{ files: AuthFile[] }>("/auth-files"),
         ])
-        if (wsAuthResult.status === "rejected") {
-          throw wsAuthResult.reason
-        }
-        if (requestRetryResult.status === "rejected") {
-          throw requestRetryResult.reason
-        }
-        if (maxRetryIntervalResult.status === "rejected") {
-          throw maxRetryIntervalResult.reason
-        }
-        if (routingStrategyResult.status === "rejected") {
-          throw routingStrategyResult.reason
-        }
-        if (switchProjectResult.status === "rejected") {
-          throw switchProjectResult.reason
-        }
-        if (apiKeysResult.status === "rejected") {
-          throw apiKeysResult.reason
-        }
-        if (codexKeysResult.status === "rejected") {
-          throw codexKeysResult.reason
-        }
-        if (authFilesResult.status === "rejected") {
-          throw authFilesResult.reason
+
+        const results = [
+          wsAuthResult,
+          requestRetryResult,
+          maxRetryIntervalResult,
+          routingStrategyResult,
+          switchProjectResult,
+          apiKeysResult,
+          codexKeysResult,
+          modelCatalogResult,
+          authFilesResult,
+        ]
+
+        const firstError = results.find((r) => r.status === "rejected")
+        if (firstError && firstError.status === "rejected") {
+          throw firstError.reason
         }
 
-        const baseAuthFiles = authFilesResult.value.files
+        if (
+          wsAuthResult.status === "fulfilled" &&
+          requestRetryResult.status === "fulfilled" &&
+          maxRetryIntervalResult.status === "fulfilled" &&
+          routingStrategyResult.status === "fulfilled" &&
+          switchProjectResult.status === "fulfilled"
+        ) {
+          setRuntimeSettings({
+            wsAuth: wsAuthResult.value["ws-auth"],
+            requestRetry: requestRetryResult.value["request-retry"],
+            maxRetryInterval: maxRetryIntervalResult.value["max-retry-interval"],
+            routingStrategy: routingStrategyResult.value.strategy,
+            switchProject: switchProjectResult.value["switch-project"],
+          })
+        }
 
-        setRuntimeSettings({
-          wsAuth: wsAuthResult.value["ws-auth"],
-          requestRetry: requestRetryResult.value["request-retry"],
-          maxRetryInterval: maxRetryIntervalResult.value["max-retry-interval"],
-          routingStrategy: routingStrategyResult.value.strategy,
-          switchProject: switchProjectResult.value["switch-project"],
-        })
-        setApiKeysText(toStringArray(apiKeysResult.value["api-keys"]).join("\n"))
-        setCodexKeysText(
-          prettyJson(toUnknownArray(codexKeysResult.value["codex-api-key"])),
-        )
-        setAuthFiles(baseAuthFiles)
+        if (apiKeysResult.status === "fulfilled") {
+          setApiKeysText(toStringArray(apiKeysResult.value["api-keys"]).join("\n"))
+        }
+        if (codexKeysResult.status === "fulfilled") {
+          setCodexKeysText(prettyJson(toUnknownArray(codexKeysResult.value["codex-api-key"])))
+        }
+        if (modelCatalogResult.status === "fulfilled") {
+          setModels(modelCatalogResult.value.models)
+        }
+        if (authFilesResult.status === "fulfilled") {
+          setAuthFiles(authFilesResult.value.files)
+          setAuthFileDrafts(
+            Object.fromEntries(
+              authFilesResult.value.files.map((file) => [file.name, createAuthFileDraft(file)]),
+            ),
+          )
+        }
+
         setConnectionState("ready")
-
-        void enrichAuthFilesUsage(client, baseAuthFiles, loadId)
       },
-      showSuccess ? "Management dashboard loaded" : undefined,
+      showSuccess ? "Dashboard data loaded" : undefined,
     ).catch(() => {
       setConnectionState("error")
     })
-  }
+  }, [client, withBusy])
+
+  useEffect(() => {
+    void loadDashboard(false)
+  }, [loadDashboard])
+
+  const updateActiveSectionFromScroll = useCallback(() => {
+    const anchorOffset = 140
+    const viewportBottom = window.scrollY + window.innerHeight
+    const documentHeight = Math.max(
+      document.documentElement.scrollHeight,
+      document.body.scrollHeight,
+    )
+
+    if (viewportBottom >= documentHeight - 1) {
+      const lastItem = NAV_ITEMS[NAV_ITEMS.length - 1]
+      setActiveSection((current) =>
+        current === lastItem.id ? current : lastItem.id,
+      )
+      return
+    }
+
+    let activeId: (typeof NAV_ITEMS)[number]["id"] = NAV_ITEMS[0].id
+    let bestPassedTop = Number.NEGATIVE_INFINITY
+    let nearestUpcomingTop = Number.POSITIVE_INFINITY
+
+    NAV_ITEMS.forEach((item) => {
+      const section = document.getElementById(item.id)
+      if (!section) {
+        return
+      }
+
+      const { top } = section.getBoundingClientRect()
+
+      if (top <= anchorOffset) {
+        if (top > bestPassedTop) {
+          bestPassedTop = top
+          activeId = item.id
+        } else if (top === bestPassedTop && activeSectionRef.current === item.id) {
+          activeId = item.id
+        }
+        return
+      }
+
+      if (bestPassedTop === Number.NEGATIVE_INFINITY && top < nearestUpcomingTop) {
+        nearestUpcomingTop = top
+        activeId = item.id
+      } else if (
+        bestPassedTop === Number.NEGATIVE_INFINITY &&
+        top === nearestUpcomingTop &&
+        activeSectionRef.current === item.id
+      ) {
+        activeId = item.id
+      }
+    })
+
+    setActiveSection((current) => (current === activeId ? current : activeId))
+  }, [])
+
+  useEffect(() => {
+    if (connectionState !== "ready") {
+      return undefined
+    }
+
+    updateActiveSectionFromScroll()
+
+    observer.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setActiveSection(entry.target.id)
+          }
+        })
+      },
+      { threshold: 0.5, rootMargin: "-10% 0px -70% 0px" },
+    )
+
+    NAV_ITEMS.forEach((item) => {
+      const section = document.getElementById(item.id)
+      if (section) {
+        observer.current?.observe(section)
+      }
+    })
+
+    const handleScroll = () => {
+      updateActiveSectionFromScroll()
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true })
+    window.addEventListener("resize", handleScroll)
+
+    return () => {
+      observer.current?.disconnect()
+      window.removeEventListener("scroll", handleScroll)
+      window.removeEventListener("resize", handleScroll)
+    }
+  }, [connectionState, updateActiveSectionFromScroll])
 
   async function saveRuntimeSettings() {
-    const client = createManagementClient(managementKey)
-
     await withBusy(
       "save-runtime",
       async () => {
-        const requests: Array<Promise<StatusOk>> = [
-          client.putJson<StatusOk>("/ws-auth", {
-            value: runtimeSettings.wsAuth,
-          }),
-          client.putJson<StatusOk>("/request-retry", {
-            value: runtimeSettings.requestRetry,
-          }),
-          client.putJson<StatusOk>("/max-retry-interval", {
-            value: runtimeSettings.maxRetryInterval,
-          }),
-          client.putJson<StatusOk>("/routing/strategy", {
-            value: runtimeSettings.routingStrategy,
-          }),
-          client.putJson<StatusOk>("/quota-exceeded/switch-project", {
-            value: runtimeSettings.switchProject,
-          }),
-        ]
-
-        await Promise.all(requests)
+        await Promise.all([
+          client.putJson<StatusOk>("/ws-auth", { value: runtimeSettings.wsAuth }),
+          client.putJson<StatusOk>("/request-retry", { value: runtimeSettings.requestRetry }),
+          client.putJson<StatusOk>("/max-retry-interval", { value: runtimeSettings.maxRetryInterval }),
+          client.putJson<StatusOk>("/routing/strategy", { value: runtimeSettings.routingStrategy }),
+          client.putJson<StatusOk>("/quota-exceeded/switch-project", { value: runtimeSettings.switchProject }),
+        ])
         await loadDashboard(false)
       },
       "Runtime settings saved",
@@ -531,7 +704,6 @@ function App() {
   }
 
   async function saveApiKeys() {
-    const client = createManagementClient(managementKey)
     await withBusy(
       "save-api-keys",
       async () => {
@@ -542,839 +714,578 @@ function App() {
     )
   }
 
-  async function saveJsonResource(
-    action: string,
-    path: string,
-    value: string,
-    label: string,
-    successMessage: string,
-  ) {
-    const client = createManagementClient(managementKey)
+  async function saveCodexKeys() {
     await withBusy(
-      action,
+      "save-codex-keys",
       async () => {
-        await client.putJson<StatusOk>(path, parseJsonText(value, label))
+        await client.putJson<StatusOk>("/codex-api-key", parseJsonText(codexKeysText, "Codex keys"))
         await loadDashboard(false)
       },
-      successMessage,
+      "Codex keys updated",
     )
   }
 
-  async function refreshModelCatalog() {
-    const client = createManagementClient(managementKey)
-    await withBusy(
-      "refresh-model-catalog",
-      async () => {
-        const response = await client.getJson<{
-          channel: string
-          models: ModelDefinition[]
-        }>(`/model-definitions/${encodeURIComponent(modelCatalogChannel.trim())}`)
-        setModelCatalogText(prettyJson(response.models))
-      },
-      `Loaded model catalog for ${modelCatalogChannel}`,
-    )
-  }
-
-  async function startCodexOAuth() {
-    const client = createManagementClient(managementKey)
-    await withBusy("start-codex-oauth", async () => {
-      const response = await client.getJson<OAuthStartResponse>(
-        "/codex-auth-url?is_webui=true",
+  const refreshOAuthStatus = useCallback(async (state: string) => {
+    try {
+      const response = await client.getJson<{ status: string; error?: string }>(
+        `/get-auth-status?state=${encodeURIComponent(state)}`,
       )
-      setOauthStatus({ status: "wait", state: response.state, url: response.url })
 
-      const popup = window.open(response.url, "_blank", "noopener,noreferrer")
-      if (!popup) {
-        setFeedback({
-          tone: "info",
-          text: "Popup blocked. Use the Open OAuth page button below.",
+      if (response.status === "wait") {
+        setOAuthSession({
+          state,
+          status: "wait",
+          message: "Waiting for browser confirmation",
         })
-      }
-
-      const deadline = Date.now() + 10 * 60 * 1000
-      while (Date.now() < deadline) {
-        const status = await client.getJson<OAuthStatusResponse>(
-          `/get-auth-status?state=${encodeURIComponent(response.state)}`,
-        )
-
-        if (status.status === "wait") {
-          await sleep(1000)
-          continue
-        }
-
-        if (status.status === "ok") {
-          setOauthStatus({
-            status: "ok",
-            state: response.state,
-            url: response.url,
-          })
-          await loadDashboard(false)
-          setFeedback({ tone: "success", text: "Codex OAuth completed" })
-          return
-        }
-
-        setOauthStatus({
-          status: "error",
-          error: status.error,
-          state: response.state,
-          url: response.url,
-        })
-        setFeedback({ tone: "error", text: status.error ?? "OAuth failed" })
         return
       }
 
-      setOauthStatus({
-        status: "error",
-        error: "OAuth session timed out",
-        state: response.state,
-        url: response.url,
-      })
-      setFeedback({ tone: "error", text: "OAuth session timed out" })
-    })
-  }
+      if (response.status === "error") {
+        setOAuthSession({
+          state,
+          status: "error",
+          message: response.error || "OAuth flow failed",
+        })
+        return
+      }
 
-  function populateUploadFromFile(file: File | undefined) {
-    if (!file) {
-      return
+      setOAuthSession({
+        state: null,
+        status: "ok",
+        message: "OAuth session connected",
+      })
+      await loadDashboard(false)
+    } catch (error) {
+      setOAuthSession({
+        state,
+        status: "error",
+        message: getErrorMessage(error),
+      })
+    }
+  }, [client, loadDashboard])
+
+  useEffect(() => {
+    if (oauthSession.status !== "wait" || !oauthSession.state) {
+      return undefined
     }
 
-    void file.text().then((text) => {
-      setUploadName(file.name)
-      setUploadPayload(text)
-    })
-  }
+    const timer = window.setTimeout(() => {
+      void refreshOAuthStatus(oauthSession.state!)
+    }, 2000)
 
-  async function uploadAuthFile() {
-    const client = createManagementClient(managementKey)
-    const trimmedName = uploadName.trim()
-
-    await withBusy(
-      "upload-auth-file",
-      async () => {
-        if (!trimmedName) {
-          throw new Error("Auth file name is required")
-        }
-        await client.postJson<StatusOk>(
-          `/auth-files?name=${encodeURIComponent(trimmedName)}`,
-          parseJsonText<Record<string, unknown>>(uploadPayload, "Auth payload"),
-        )
-        setUploadDialogOpen(false)
-        setUploadName("")
-        setUploadPayload("{}")
-        await loadDashboard(false)
-      },
-      "Auth file uploaded",
-    )
-  }
-
-  function openAuthFieldEditor(file: AuthFile) {
-    setEditingAuthName(file.name)
-    setEditingAuthPrefix("")
-    setEditingAuthProxyUrl("")
-    setEditingAuthPriority(file.priority?.toString() ?? "")
-    setEditingAuthNote(file.note ?? "")
-    setFieldEditorOpen(true)
-  }
-
-  async function saveAuthFileFields() {
-    const client = createManagementClient(managementKey)
-
-    await withBusy(
-      "save-auth-file-fields",
-      async () => {
-        await client.patchJson<StatusOk>("/auth-files/fields", {
-          name: editingAuthName,
-          prefix: editingAuthPrefix,
-          proxy_url: editingAuthProxyUrl,
-          priority: editingAuthPriority.trim()
-            ? Number(editingAuthPriority)
-            : 0,
-          note: editingAuthNote,
-        })
-        setFieldEditorOpen(false)
-        await loadDashboard(false)
-      },
-      `Updated ${editingAuthName}`,
-    )
-  }
-
-  async function toggleAuthFile(file: AuthFile) {
-    const client = createManagementClient(managementKey)
-    await withBusy(
-      `toggle-auth-file-${file.id}`,
-      async () => {
-        await client.patchJson<{ status: string; disabled: boolean }>(
-          "/auth-files/status",
-          {
-            name: file.name,
-            disabled: !file.disabled,
-          },
-        )
-        await loadDashboard(false)
-      },
-      `${file.name} ${file.disabled ? "enabled" : "disabled"}`,
-    )
-  }
-
-  async function deleteAuthFile(file: AuthFile) {
-    const client = createManagementClient(managementKey)
-    await withBusy(
-      `delete-auth-file-${file.id}`,
-      async () => {
-        await client.delete<{ status: string }>(
-          `/auth-files?name=${encodeURIComponent(file.name)}`,
-        )
-        await loadDashboard(false)
-      },
-      `${file.name} deleted`,
-    )
-  }
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [oauthSession.state, oauthSession.status, refreshOAuthStatus])
 
   async function downloadAuthFile(file: AuthFile) {
-    const client = createManagementClient(managementKey)
-    await withBusy(`download-auth-file-${file.id}`, async () => {
+    await withBusy("download-auth", async () => {
       const blob = await client.getBlob(
         `/auth-files/download?name=${encodeURIComponent(file.name)}`,
       )
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = file.name
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    }, "Auth file download started")
+  }
 
-      const objectUrl = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = objectUrl
-      link.download = file.name
-      link.click()
-      URL.revokeObjectURL(objectUrl)
-      setFeedback({ tone: "success", text: `${file.name} downloaded` })
+  async function startOAuth() {
+    setOAuthSession({
+      state: null,
+      status: "launching",
+      message: "Opening browser sign-in...",
     })
+
+    await withBusy("oauth-start", async () => {
+      const res = await client.getJson<{ status: string; url: string; state: string }>(
+        "/codex-auth-url?is_webui=true",
+      )
+
+      const popup = window.open(res.url, "_blank")
+      if (!popup) {
+        setOAuthSession({
+          state: null,
+          status: "error",
+          message: "Browser blocked the OAuth popup. Allow popups and try again.",
+        })
+        throw new Error("Browser blocked the OAuth popup. Allow popups and try again.")
+      }
+
+      setOAuthSession({
+        state: res.state,
+        status: "wait",
+        message: "Opening browser sign-in...",
+      })
+      await refreshOAuthStatus(res.state)
+    }, "OAuth flow opened in new tab").catch(() => undefined)
   }
 
   async function loadAuthFileModels(file: AuthFile) {
-    const client = createManagementClient(managementKey)
-    await withBusy(
-      `models-${file.id}`,
-      async () => {
-        const response = await client.getJson<{ models: ModelDefinition[] }>(
-          `/auth-files/models?name=${encodeURIComponent(file.name)}`,
-        )
-        setAuthModelsTitle(file.name)
-        setAuthModels(response.models)
-        setAuthModelsOpen(true)
+    await withBusy(`load-auth-models:${file.name}`, async () => {
+      const response = await client.getJson<{ models: ModelDefinition[] }>(
+        `/auth-files/models?name=${encodeURIComponent(file.name)}`,
+      )
+      setAuthFileModels((current) => ({
+        ...current,
+        [file.name]: response.models,
+      }))
+    })
+  }
+
+  async function saveAuthFileDetails(file: AuthFile) {
+    const draft = authFileDrafts[file.name] ?? createAuthFileDraft(file)
+    const normalizedPriority = draft.priority.trim() === "" ? undefined : Number(draft.priority)
+
+    await withBusy(`save-auth-fields:${file.name}`, async () => {
+      await client.patchJson<StatusOk>("/auth-files/fields", {
+        name: file.name,
+        prefix: draft.prefix,
+        priority: normalizedPriority,
+        note: draft.note,
+      })
+      await loadDashboard(false)
+    }, "Auth file details saved")
+  }
+
+  async function toggleAuthFileDisabled(file: AuthFile) {
+    await withBusy(`toggle-auth:${file.name}`, async () => {
+      await client.patchJson<StatusOk>("/auth-files/status", {
+        name: file.name,
+        disabled: !file.disabled,
+      })
+      await loadDashboard(false)
+    }, file.disabled ? "Auth file enabled" : "Auth file disabled")
+  }
+
+  function updateAuthFileDraft(
+    name: string,
+    field: "prefix" | "priority" | "note",
+    value: string,
+  ) {
+    setAuthFileDrafts((current) => ({
+      ...current,
+      [name]: {
+        ...(current[name] ?? { prefix: "", priority: "", note: "" }),
+        [field]: value,
       },
-      `Loaded models for ${file.name}`,
-    )
+    }))
+  }
+
+  const scrollToSection = (id: string) => {
+    setActiveSection(id)
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
   return (
-    <div className="min-h-screen bg-muted/30 text-foreground">
-      <div className="mx-auto max-w-7xl px-4 py-6 lg:px-6">
-        <div className="mb-6 space-y-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Cockpit management console
-            </h1>
-            <StatusPill
-              label={connectionState}
-              tone={
-                connectionState === "ready"
-                  ? "success"
-                  : connectionState === "error"
-                    ? "destructive"
-                    : connectionState === "loading"
-                      ? "warning"
-                      : "default"
-              }
-            />
-            
-          </div>
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            Single-page WebUI for the full management API. The default mode uses
-            the current origin, which works for local <code>start.sh</code>
-            development and reverse-proxied deployments. The only required input
-            here is the management key.
-          </p>
-          {feedback ? (
-            <div
-              className={`rounded-lg border px-3 py-2 text-sm ${
-                feedback.tone === "success"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : feedback.tone === "error"
-                    ? "border-red-200 bg-red-50 text-red-700"
-                    : "border-blue-200 bg-blue-50 text-blue-700"
-              }`}
-            >
-              {feedback.text}
+    <div className="min-h-screen bg-muted/30 text-foreground font-sans selection:bg-primary/15">
+      <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+              <LayoutDashboard size={22} />
             </div>
-          ) : null}
-        </div>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight text-foreground">Cockpit</h1>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Management Console</span>
+                <StatusPill
+                  label={connectionState}
+                  tone={
+                    connectionState === "ready"
+                      ? "success"
+                      : connectionState === "error"
+                        ? "destructive"
+                        : connectionState === "loading"
+                          ? "warning"
+                          : "default"
+                  }
+                />
+              </div>
+            </div>
+          </div>
 
-        <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <aside className="lg:sticky lg:top-6 lg:self-start">
-            <Card>
-              <CardHeader>
-                <CardTitle>Sections</CardTitle>
-                <CardDescription>Jump between management areas.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {NAV_ITEMS.map((item) => (
-                  <Button
-                    key={item.id}
-                    variant="ghost"
-                    className="w-full justify-start"
-                    onClick={() => {
-                      document
-                        .getElementById(item.id)
-                        ?.scrollIntoView({ behavior: "smooth", block: "start" })
-                    }}
-                  >
-                    {item.label}
-                  </Button>
-                ))}
-              </CardContent>
-            </Card>
+          <div className="flex items-center gap-3">
+            {feedback && (
+              <div className={`hidden animate-in fade-in slide-in-from-top-2 md:flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-medium ${
+                feedback.tone === "success"
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
+                  : feedback.tone === "error"
+                    ? "border-destructive/20 bg-destructive/10 text-destructive"
+                    : "border-primary/20 bg-primary/10 text-primary"
+              }`}>
+                {feedback.tone === "success" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                {feedback.text}
+              </div>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 rounded-lg bg-background"
+              onClick={() => void loadDashboard(true)}
+              disabled={busyAction !== null}
+            >
+              {busyAction === "load-dashboard" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Sync
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="grid gap-8 lg:grid-cols-[240px_1fr]">
+          <aside className="hidden lg:block">
+            <nav className="sticky top-24 space-y-1 rounded-2xl border border-border/70 bg-background/80 p-3 shadow-sm shadow-black/5">
+              <p className="mb-4 px-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                Configuration
+              </p>
+              {NAV_ITEMS.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => scrollToSection(item.id)}
+                  aria-current={activeSection === item.id ? "page" : undefined}
+                  className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
+                    activeSection === item.id
+                      ? "bg-primary/10 text-primary shadow-sm shadow-primary/10"
+                      : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+                  }`}
+                >
+                  <item.icon
+                    size={18}
+                    className={`transition-colors ${
+                      activeSection === item.id ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                    }`}
+                  />
+                  {item.label}
+                </button>
+              ))}
+            </nav>
           </aside>
 
-          <main className="space-y-6">
-            <SectionCard
-              id="access"
-              title="Access"
-              description="Configure backend access, load the dashboard, and trigger Codex OAuth."
-              actions={
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void loadDashboard(false)}
-                    disabled={accessActionDisabled}
-                  >
-                    Reload
+          <main className="space-y-10">
+            <section id="codex-keys" className="scroll-mt-24">
+              <JsonEditorCard
+                id="codex-keys-editor"
+                title="Codex Keys"
+                description="Configure your Codex providers. The backend automatically handles base-url normalization."
+                value={codexKeysText}
+                onChange={setCodexKeysText}
+                onRefresh={() => void loadDashboard(false)}
+                onSave={() => void saveCodexKeys()}
+                disabled={busyAction !== null || connectionState !== "ready"}
+                placeholder={CODEX_KEYS_PLACEHOLDER}
+                helper={
+                  <div className="grid gap-4 rounded-2xl border border-border/70 bg-muted/20 p-4 lg:grid-cols-[1.2fr_0.8fr]">
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Codex provider schema
+                      </p>
+                      <p className="text-sm leading-relaxed text-foreground">
+                        Paste the local provider array here. Keep Codex Keys as the top-level source of truth and let the dashboard auto-load the catalog beneath it.
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border/70 bg-background/80 p-3 text-[11px] leading-relaxed text-muted-foreground">
+                      Required: <code className="font-medium text-primary">api-key</code>, <code className="font-medium text-primary">base-url</code>.<br />
+                      Optional: <code className="font-medium text-primary">priority</code>, <code className="font-medium text-primary">headers</code>, <code className="font-medium text-primary">websockets</code>.
+                    </div>
+                  </div>
+                }
+                saveLabel="Update Codex"
+              />
+            </section>
+
+            <div className="grid gap-8">
+              <section id="api-keys" className="scroll-mt-24">
+                <SectionCard
+                  id="api-keys-card"
+                  title="API Keys"
+                  description="Downstream access keys (one per line)."
+                  className="h-full"
+                  actions={
+                    <Button
+                      size="sm"
+                      className="h-8 shadow-sm"
+                      onClick={() => void saveApiKeys()}
+                      disabled={busyAction !== null || connectionState !== "ready"}
+                    >
+                      <Save size={14} className="mr-2" />
+                      Save Keys
+                    </Button>
+                  }
+                >
+                  <Textarea
+                    value={apiKeysText}
+                    onChange={(event) => setApiKeysText(event.target.value)}
+                    className="min-h-[320px] border-border/70 bg-background font-mono text-[11px] leading-relaxed"
+                    placeholder="sk-..."
+                    spellCheck={false}
+                  />
+                </SectionCard>
+              </section>
+
+              <section id="model-catalog" className="scroll-mt-24">
+                <SectionCard
+                  id="catalog-card"
+                  title="Model Catalog"
+                  description="Current Codex model definitions."
+                  className="h-full"
+                  actions={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-primary hover:bg-primary/10 hover:text-primary"
+                      onClick={() => void loadDashboard(false)}
+                      disabled={busyAction !== null}
+                    >
+                      <RefreshCw size={14} className="mr-2" />
+                      Reload
+                    </Button>
+                  }
+                >
+                  <div className="grid gap-3">
+                    {models.length > 0 ? (
+                      models.map((model) => <ModelCard key={model.id} model={model} />)
+                    ) : (
+                      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/10 py-12 text-center">
+                        <BookOpen size={32} className="mb-2 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">No models found in catalog</p>
+                      </div>
+                    )}
+                  </div>
+                </SectionCard>
+              </section>
+            </div>
+
+            <section id="runtime" className="scroll-mt-24">
+              <SectionCard
+                id="runtime-card"
+                title="Runtime Settings"
+                description="Global behavior and failover configuration."
+                  actions={
+                    <Button
+                      size="sm"
+                      className="h-9 shadow-sm"
+                      onClick={() => void saveRuntimeSettings()}
+                      disabled={busyAction !== null || connectionState !== "ready"}
+                    >
+                    Apply Changes
                   </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => void loadDashboard(true)}
-                    disabled={accessActionDisabled}
-                  >
-                    Connect
-                  </Button>
-                </div>
-              }
-            >
-              <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-                <div className="space-y-4">
+                }
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
                   <SettingField
-                    label="Management key"
-                    description="Sent as the Authorization Bearer token for every request."
+                    label="WebSocket Authentication"
+                    description="Require valid credentials for WS upgrades."
+                  >
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {runtimeSettings.wsAuth ? "Enabled" : "Disabled"}
+                      </span>
+                      <Switch
+                        checked={runtimeSettings.wsAuth}
+                        onCheckedChange={(checked) =>
+                          setRuntimeSettings((current) => ({ ...current, wsAuth: checked }))
+                        }
+                      />
+                    </div>
+                  </SettingField>
+
+                  <SettingField
+                    label="Project Failover"
+                    description="Switch project automatically on quota exhaustion."
+                  >
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {runtimeSettings.switchProject ? "Active" : "Inactive"}
+                      </span>
+                      <Switch
+                        checked={runtimeSettings.switchProject}
+                        onCheckedChange={(checked) =>
+                          setRuntimeSettings((current) => ({ ...current, switchProject: checked }))
+                        }
+                      />
+                    </div>
+                  </SettingField>
+
+                  <SettingField
+                    label="Retry Count"
+                    description="Maximum attempts for upstream requests."
                   >
                     <Input
-                      type="password"
-                      value={managementKey}
-                      onChange={(event) => setManagementKey(event.target.value)}
-                      placeholder="Enter management key"
+                      type="number"
+                      min={0}
+                      className="h-9 bg-background"
+                      value={runtimeSettings.requestRetry}
+                      onChange={(event) =>
+                        setRuntimeSettings((current) => ({
+                          ...current,
+                          requestRetry: Number(event.target.value || 0),
+                        }))
+                      }
                     />
                   </SettingField>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      onClick={() => void startCodexOAuth()}
-                      disabled={accessActionDisabled}
-                    >
-                      Start Codex OAuth
-                    </Button>
-                    {oauthStatus.url ? (
-                      <Button variant="outline" asChild>
-                        <a href={oauthStatus.url} target="_blank" rel="noreferrer">
-                          Open OAuth page
-                        </a>
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-border/70 bg-background p-4 text-sm">
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="font-medium">OAuth status</div>
-                    <StatusPill
-                      label={oauthStatus.status}
-                      tone={
-                        oauthStatus.status === "ok"
-                          ? "success"
-                          : oauthStatus.status === "error"
-                            ? "destructive"
-                            : oauthStatus.status === "wait"
-                              ? "warning"
-                              : "default"
+                  <SettingField
+                    label="Retry Cooldown"
+                    description="Seconds to wait before retrying a credential."
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      className="h-9 bg-background"
+                      value={runtimeSettings.maxRetryInterval}
+                      onChange={(event) =>
+                        setRuntimeSettings((current) => ({
+                          ...current,
+                          maxRetryInterval: Number(event.target.value || 0),
+                        }))
                       }
                     />
-                  </div>
-                  <div className="space-y-2 text-muted-foreground">
-                    <div>State: {oauthStatus.state ?? "—"}</div>
-                    <div>Error: {oauthStatus.error ?? "—"}</div>
-                  </div>
-                </div>
-              </div>
-            </SectionCard>
+                  </SettingField>
 
-            <SectionCard
-              id="runtime"
-              title="Runtime settings"
-              description="Edit scalar settings exposed by the management API and save them together."
-              actions={
-                <Button
-                  size="sm"
-                  onClick={() => void saveRuntimeSettings()}
-                  disabled={busyAction !== null || connectionState !== "ready"}
-                >
-                  Save runtime settings
-                </Button>
-              }
-            >
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                
-                
-                <SettingField
-                  label="WebSocket auth"
-                  description="Require auth for WebSocket upgrades."
-                >
-                  <Switch
-                    checked={runtimeSettings.wsAuth}
-                    onCheckedChange={(checked) =>
-                      setRuntimeSettings((current) => ({ ...current, wsAuth: checked }))
-                    }
-                  />
-                </SettingField>
-                <SettingField
-                  label="Request retry"
-                  description="How many times Cockpit retries failed upstream requests."
-                >
-                  <Input
-                    type="number"
-                    min={0}
-                    value={runtimeSettings.requestRetry}
-                    onChange={(event) =>
-                      setRuntimeSettings((current) => ({
-                        ...current,
-                        requestRetry: Number(event.target.value || 0),
-                      }))
-                    }
-                  />
-                </SettingField>
-                <SettingField
-                  label="Max retry interval"
-                  description="Cooldown in seconds before retrying an auth entry."
-                >
-                  <Input
-                    type="number"
-                    min={0}
-                    value={runtimeSettings.maxRetryInterval}
-                    onChange={(event) =>
-                      setRuntimeSettings((current) => ({
-                        ...current,
-                        maxRetryInterval: Number(event.target.value || 0),
-                      }))
-                    }
-                  />
-                </SettingField>
-                
-                
-                <SettingField
-                  label="Switch project on quota exceeded"
-                  description="Enable project failover when a quota is exhausted."
-                >
-                  <Switch
-                    checked={runtimeSettings.switchProject}
-                    onCheckedChange={(checked) =>
-                      setRuntimeSettings((current) => ({
-                        ...current,
-                        switchProject: checked,
-                      }))
-                    }
-                  />
-                </SettingField>
-                
-                <SettingField
-                  label="Routing strategy"
-                  description="Choose the credential selection strategy."
-                >
-                  <Select
-                    value={runtimeSettings.routingStrategy}
-                    onValueChange={(value) =>
-                      setRuntimeSettings((current) => ({
-                        ...current,
-                        routingStrategy: value,
-                      }))
-                    }
+                  <SettingField
+                    label="Routing Strategy"
+                    description="Algorithm for credential selection."
                   >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Choose a strategy" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="round-robin">round-robin</SelectItem>
-                      <SelectItem value="fill-first">fill-first</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </SettingField>
-              </div>
-            </SectionCard>
+                    <Select
+                      value={runtimeSettings.routingStrategy}
+                      onValueChange={(value) =>
+                        setRuntimeSettings((current) => ({
+                          ...current,
+                          routingStrategy: value,
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="h-9 bg-background">
+                        <SelectValue placeholder="Select strategy" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="round-robin">Round Robin</SelectItem>
+                        <SelectItem value="fill-first">Fill First</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingField>
+                </div>
+              </SectionCard>
+            </section>
 
-            
-
-            <SectionCard
-              id="api-keys"
-              title="API keys"
-              description="Manage the downstream API keys list. One key per line."
-              actions={
-                <div className="flex gap-2">
+            <section id="auth-files" className="scroll-mt-24">
+              <SectionCard
+                id="auth-files-card"
+                title="Auth Files"
+                description="Manage local authentication material and OAuth sessions."
+                actions={
                   <Button
-                    variant="outline"
                     size="sm"
-                    onClick={() => void loadDashboard(false)}
+                    variant="outline"
+                    className="h-9"
+                    onClick={() => void startOAuth()}
                     disabled={busyAction !== null}
                   >
-                    Refresh
+                    <ShieldCheck size={14} className="mr-2 text-primary" />
+                    Start OAuth
                   </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => void saveApiKeys()}
-                    disabled={busyAction !== null || connectionState !== "ready"}
-                  >
-                    Save API keys
-                  </Button>
+                }
+              >
+                <div className="space-y-4">
+                  <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                    <div className="rounded-2xl border border-border/80 bg-muted/15 p-4 shadow-sm shadow-black/5">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            OAuth
+                          </div>
+                          <div className="text-sm text-foreground">
+                            Restore browser-based Codex sign-in without changing the app’s authless same-origin runtime.
+                          </div>
+                        </div>
+                        <StatusPill
+                          label={oauthSession.status}
+                          tone={
+                            oauthSession.status === "ok"
+                              ? "success"
+                              : oauthSession.status === "error"
+                                ? "destructive"
+                                : oauthSession.status === "wait" || oauthSession.status === "launching"
+                                  ? "warning"
+                                  : "default"
+                          }
+                        />
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
+                        {oauthSession.message}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5">
+                      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Local auth summary
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                          <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Managed files</div>
+                          <div className="mt-1 text-2xl font-semibold text-foreground">{authFiles.length}</div>
+                        </div>
+                        <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                          <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Active seats</div>
+                          <div className="mt-1 text-2xl font-semibold text-foreground">
+                            {authFiles.filter((file) => !file.disabled).length}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {authFiles.length > 0 ? (
+                    authFiles.map((file) => (
+                      <AuthFileCard
+                        key={file.id}
+                        file={file}
+                        draft={authFileDrafts[file.name] ?? createAuthFileDraft(file)}
+                        models={authFileModels[file.name]}
+                        disabled={busyAction !== null || connectionState !== "ready"}
+                        onDownload={downloadAuthFile}
+                        onDraftChange={updateAuthFileDraft}
+                        onSaveDetails={saveAuthFileDetails}
+                        onToggleDisabled={toggleAuthFileDisabled}
+                        onLoadModels={loadAuthFileModels}
+                      />
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/10 py-10 text-center">
+                      <FileText size={32} className="mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">No auth files found</p>
+                    </div>
+                  )}
                 </div>
-              }
-            >
-              <Textarea
-                value={apiKeysText}
-                onChange={(event) => setApiKeysText(event.target.value)}
-                className="min-h-52 font-mono text-xs"
-                placeholder="one-key-per-line"
-                spellCheck={false}
-              />
-            </SectionCard>
+              </SectionCard>
+            </section>
 
-            <JsonEditorCard
-              id="codex-keys"
-              title="Codex keys"
-              description="Replace the full codex-api-key array. Empty base-url values are removed by the backend."
-              value={codexKeysText}
-              onChange={setCodexKeysText}
-              onRefresh={() => void loadDashboard(false)}
-              onSave={() =>
-                void saveJsonResource(
-                  "save-codex-keys",
-                  "/codex-api-key",
-                  codexKeysText,
-                  "Codex keys",
-                  "Codex keys updated",
-                )
-              }
-              disabled={busyAction !== null || connectionState !== "ready"}
-            />
-
-            
-
-            
-
-            
-
-            <SectionCard
-              id="model-catalog"
-              title="Model catalog"
-              description="Read static model definitions by channel."
-              actions={
-                <Button
-                  size="sm"
-                  onClick={() => void refreshModelCatalog()}
-                  disabled={busyAction !== null || connectionState !== "ready"}
-                >
-                  Load catalog
-                </Button>
-              }
-            >
-              <div className="space-y-3">
-                <Input
-                  value={modelCatalogChannel}
-                  onChange={(event) => setModelCatalogChannel(event.target.value)}
-                  placeholder="codex"
-                />
-                <Textarea
-                  value={modelCatalogText}
-                  onChange={(event) => setModelCatalogText(event.target.value)}
-                  className="min-h-52 font-mono text-xs"
-                  spellCheck={false}
-                />
+            <footer className="border-t border-border/70 pt-10 pb-20">
+              <div className="flex flex-col items-center justify-between gap-4 text-xs text-muted-foreground md:flex-row">
+                <p>© 2026 Cockpit Management. Authless same-origin mode.</p>
+                <div className="flex items-center gap-4">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-muted-foreground">
+                    <ExternalLink size={12} />
+                    /v0/management
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-muted-foreground">
+                    Full catalog enabled
+                  </span>
+                </div>
               </div>
-            </SectionCard>
-
-            <SectionCard
-              id="auth-files"
-              title="Auth files"
-              description="Upload, edit, enable, inspect, download, and delete stored auth files."
-              actions={
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void loadDashboard(false)}
-                    disabled={busyAction !== null}
-                  >
-                    Refresh
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => setUploadDialogOpen(true)}
-                    disabled={busyAction !== null || connectionState !== "ready"}
-                  >
-                    Upload auth file
-                  </Button>
-                </div>
-              }
-            >
-              {authFiles.length === 0 ? (
-                <div className="rounded-lg border border-border/60 py-10 text-center text-muted-foreground">
-                  No auth files loaded.
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {authFiles.map((file) => {
-                    const usageRows = getAuthFileUsageRows(file)
-                    const subscriptionLabel = getAuthFileSubscription(file)
-
-                    return (
-                      <Card key={file.id} size="sm" className="border border-border/60 shadow-sm">
-                        <CardHeader className="space-y-3">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="space-y-2">
-                              <Badge variant="secondary" className="w-fit rounded-sm font-normal">
-                                {toTitleLabel(file.provider ?? file.type ?? "unknown")}
-                              </Badge>
-                              <div className="space-y-1">
-                                <CardTitle className="text-base break-all">
-                                  {getAuthFileTitle(file)}
-                                </CardTitle>
-                                <CardDescription>{file.name}</CardDescription>
-                              </div>
-                            </div>
-                            <StatusPill
-                              label={getAuthFileStatusLabel(file)}
-                              tone={file.disabled ? "warning" : file.unavailable ? "destructive" : "success"}
-                            />
-                          </div>
-                        </CardHeader>
-
-                        <Separator className="bg-border/60" />
-
-                        <CardContent className="space-y-4 pt-3 text-sm">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Plan</span>
-                            <div className="flex flex-wrap items-center justify-end gap-2">
-                              <span className="font-medium">{getAuthFilePlan(file)}</span>
-                              {subscriptionLabel ? (
-                                <Badge variant="outline" className="font-normal">
-                                  {subscriptionLabel}
-                                </Badge>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          {usageRows.length === 0 ? (
-                            <div className="rounded-md border border-dashed border-border/60 px-3 py-2 text-sm text-muted-foreground">
-                              No usage data reported.
-                            </div>
-                          ) : (
-                            <div className="space-y-3">
-                              {usageRows.map((row) => (
-                                <div key={row.label} className="space-y-2">
-                                  <div className="flex items-center justify-between gap-3 text-sm">
-                                    <span className="text-muted-foreground">{row.label}</span>
-                                    <span className="font-medium">
-                                      {row.percent === null ? row.value ?? "—" : `${Math.round(row.percent)}%`}
-                                      {row.resetAt ? (
-                                        <span className="text-muted-foreground"> {formatUsageTimestamp(row.resetAt)}</span>
-                                      ) : null}
-                                    </span>
-                                  </div>
-                                  {row.percent === null ? null : <UsageBar percent={row.percent} />}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                            <div>Source: {file.source ?? "—"}</div>
-                            <div>Priority: {file.priority ?? "—"}</div>
-                            <div>Updated: {formatDate(file.updated_at ?? file.modtime)}</div>
-                            <div>Account: {file.account ?? file.email ?? "—"}</div>
-                          </div>
-                        </CardContent>
-
-                        <CardFooter className="mt-auto flex flex-wrap gap-2 border-t border-border/60 bg-muted/30">
-                          <Button
-                            variant="outline"
-                            size="xs"
-                            onClick={() => void loadAuthFileModels(file)}
-                            disabled={busyAction !== null}
-                          >
-                            Models
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="xs"
-                            onClick={() => void downloadAuthFile(file)}
-                            disabled={busyAction !== null}
-                          >
-                            Download
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="xs"
-                            onClick={() => openAuthFieldEditor(file)}
-                            disabled={busyAction !== null}
-                          >
-                            Edit fields
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="xs"
-                            onClick={() => void toggleAuthFile(file)}
-                            disabled={busyAction !== null}
-                          >
-                            {file.disabled ? "Enable" : "Disable"}
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="xs"
-                            onClick={() => void deleteAuthFile(file)}
-                            disabled={busyAction !== null}
-                          >
-                            Delete
-                          </Button>
-                        </CardFooter>
-                      </Card>
-                    )
-                  })}
-                </div>
-              )}
-            </SectionCard>
-
-            
+            </footer>
           </main>
         </div>
       </div>
-
-      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Upload auth file</DialogTitle>
-            <DialogDescription>
-              Create or replace a stored auth file by name and raw JSON payload.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Input
-              value={uploadName}
-              onChange={(event) => setUploadName(event.target.value)}
-              placeholder="account.json"
-            />
-            <Input
-              type="file"
-              accept="application/json"
-              onChange={(event) => populateUploadFromFile(event.target.files?.[0])}
-            />
-            <Textarea
-              value={uploadPayload}
-              onChange={(event) => setUploadPayload(event.target.value)}
-              className="min-h-80 font-mono text-xs"
-              spellCheck={false}
-            />
-          </div>
-          <DialogFooter showCloseButton>
-            <Button onClick={() => void uploadAuthFile()} disabled={busyAction !== null}>
-              Upload
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={fieldEditorOpen} onOpenChange={setFieldEditorOpen}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Edit auth file fields</DialogTitle>
-            <DialogDescription>
-              Update prefix, proxy URL, priority, and note for {editingAuthName}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Input
-              value={editingAuthPrefix}
-              onChange={(event) => setEditingAuthPrefix(event.target.value)}
-              placeholder="Prefix"
-            />
-            <Input
-              value={editingAuthProxyUrl}
-              onChange={(event) => setEditingAuthProxyUrl(event.target.value)}
-              placeholder="Proxy URL"
-            />
-            <Input
-              type="number"
-              value={editingAuthPriority}
-              onChange={(event) => setEditingAuthPriority(event.target.value)}
-              placeholder="Priority (0 clears it)"
-            />
-            <Input value={editingAuthName} readOnly />
-          </div>
-          <Textarea
-            value={editingAuthNote}
-            onChange={(event) => setEditingAuthNote(event.target.value)}
-            className="min-h-32"
-            placeholder="Note"
-          />
-          <DialogFooter showCloseButton>
-            <Button onClick={() => void saveAuthFileFields()} disabled={busyAction !== null}>
-              Save fields
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={authModelsOpen} onOpenChange={setAuthModelsOpen}>
-        <DialogContent className="sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Models for {authModelsTitle}</DialogTitle>
-            <DialogDescription>
-              Static model list returned by the backend for this auth file.
-            </DialogDescription>
-          </DialogHeader>
-          <ScrollArea className="h-[24rem] rounded-lg border border-border/60">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Display name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Owned by</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {authModels.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
-                      No models returned.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  authModels.map((model) => (
-                    <TableRow key={model.id}>
-                      <TableCell className="font-medium">{model.id}</TableCell>
-                      <TableCell>{model.display_name ?? "—"}</TableCell>
-                      <TableCell>{model.type ?? "—"}</TableCell>
-                      <TableCell>{model.owned_by ?? "—"}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </ScrollArea>
-          <DialogFooter showCloseButton />
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

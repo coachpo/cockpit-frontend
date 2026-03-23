@@ -38,28 +38,20 @@ async function extractErrorDetails(response: Response): Promise<string> {
 }
 
 function buildHeaders(
-  managementKey: string,
   extraHeaders?: HeadersInit,
 ): Headers {
-  const key = managementKey.trim()
-  if (!key) {
-    throw new Error("Management key is required")
-  }
-
   const headers = new Headers(extraHeaders)
-  headers.set("Authorization", `Bearer ${key}`)
   return headers
 }
 
 async function request<T>(
-  managementKey: string,
   path: string,
   init?: RequestInit,
   parser?: (response: Response) => Promise<T>,
 ): Promise<T> {
   const response = await fetch(buildManagementUrl(path), {
     ...init,
-    headers: buildHeaders(managementKey, init?.headers),
+    headers: buildHeaders(init?.headers),
   })
 
   if (!response.ok) {
@@ -78,22 +70,22 @@ async function request<T>(
   return (await response.json()) as T
 }
 
-export function createManagementClient(managementKey: string) {
+export function createManagementClient() {
   return {
     getJson<T>(path: string) {
-      return request<T>(managementKey, path)
+      return request<T>(path)
     },
 
     getText(path: string) {
-      return request<string>(managementKey, path, undefined, (response) => response.text())
+      return request<string>(path, undefined, (response) => response.text())
     },
 
     getBlob(path: string) {
-      return request<Blob>(managementKey, path, undefined, (response) => response.blob())
+      return request<Blob>(path, undefined, (response) => response.blob())
     },
 
     postJson<T>(path: string, body: unknown) {
-      return request<T>(managementKey, path, {
+      return request<T>(path, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -103,7 +95,7 @@ export function createManagementClient(managementKey: string) {
     },
 
     putJson<T>(path: string, body: unknown) {
-      return request<T>(managementKey, path, {
+      return request<T>(path, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -113,7 +105,7 @@ export function createManagementClient(managementKey: string) {
     },
 
     patchJson<T>(path: string, body: unknown) {
-      return request<T>(managementKey, path, {
+      return request<T>(path, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -123,7 +115,7 @@ export function createManagementClient(managementKey: string) {
     },
 
     delete<T>(path: string) {
-      return request<T>(managementKey, path, {
+      return request<T>(path, {
         method: "DELETE",
       })
     },

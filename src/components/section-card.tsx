@@ -15,6 +15,7 @@ interface SectionCardProps {
   description: string
   actions?: ReactNode
   children: ReactNode
+  className?: string
 }
 
 export function SectionCard({
@@ -23,9 +24,10 @@ export function SectionCard({
   description,
   actions,
   children,
+  className,
 }: SectionCardProps) {
   return (
-    <section id={id} className="scroll-mt-6">
+    <section id={id} className={`scroll-mt-6 ${className ?? ""}`}>
       <Card className="border bg-card/95 shadow-sm">
         <CardHeader>
           <div>
