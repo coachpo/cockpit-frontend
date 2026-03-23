@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-22T22:25:39+02:00
-**Commit:** b37026f
+**Generated:** 2026-03-23T02:08:08+02:00
+**Commit:** ce51297
 **Branch:** main
 
 ## OVERVIEW
@@ -28,7 +28,7 @@ Read `src/AGENTS.md` for source-tree rules. Root covers setup, build, and repo-l
 | Task | Location | Notes |
 |------|----------|-------|
 | App shell and all management sections | `src/App.tsx` | canonical entrypoint; no router or external state library |
-| Backend management client | `src/lib/management-api.ts` | wraps same-origin `/v0/management`, adds `X-Management-Key`, and normalizes error payloads |
+| Backend management client | `src/lib/management-api.ts` | wraps same-origin `/v0/management`, sends `Authorization: Bearer ...`, and normalizes error payloads |
 | Management action gating | `src/lib/management-access.ts` | central busy-state + management-key disable rule |
 | Shared management types | `src/types/management.ts` | `RuntimeSettings`, `AuthFile`, `ModelDefinition`, response shapes |
 | Reusable section wrappers | `src/components/section-card.tsx`, `src/components/json-editor-card.tsx` | preferred scaffolding for new dashboard sections |

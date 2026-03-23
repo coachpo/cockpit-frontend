@@ -3,12 +3,12 @@
 Parent: `../AGENTS.md`
 
 ## OVERVIEW
-Frontend source tree for the Cockpit management console. `App.tsx` is the canonical app shell: it owns the section registry, local state, async actions, dialogs, feedback flow, and the current 9-section dashboard.
+Frontend source tree for the Cockpit management console. `App.tsx` is the canonical app shell: it owns the sidebar nav, connection and busy state, OAuth flow, model-catalog loading, auth-file dialogs, and the current Access / Runtime / API Keys / Codex Keys / Auth Files dashboard plus the standalone Model Catalog section.
 
 ## WHERE TO LOOK
-- `App.tsx`: `NAV_ITEMS`, the Access / Runtime / Configuration / API Keys / Codex Keys / OpenAI Compat / OAuth Models / Auth Files / API Tool sections, `withBusy`, and OAuth flow.
+- `App.tsx`: `NAV_ITEMS`, the Access / Runtime / API Keys / Codex Keys / Auth Files sections, the standalone Model Catalog section, `withBusy`, OAuth flow, and auth-file edit/models dialogs.
 - `main.tsx`: React mount only; keep it thin.
-- `lib/management-api.ts`: typed same-origin request helper and `ManagementRequestError`.
+- `lib/management-api.ts`: typed same-origin request helper, Bearer-token header wiring, and `ManagementRequestError`.
 - `lib/management-access.ts`: shared disable rule for busy or missing-key management actions.
 - `types/management.ts`: shared request and response contracts plus `MANAGEMENT_BASE_PATH`.
 - `components/section-card.tsx`: standard wrapper for scroll-linked dashboard sections.
@@ -17,9 +17,9 @@ Frontend source tree for the Cockpit management console. `App.tsx` is the canoni
 - `index.css`: Tailwind v4 theme tokens, dark-mode variables, and global font setup.
 
 ## LOCAL CONVENTIONS
-- Add new dashboard sections by extending `NAV_ITEMS` and rendering a `SectionCard` or `JsonEditorCard` in `App.tsx`.
+- Add or reorder sidebar sections by extending `NAV_ITEMS` and rendering a `SectionCard` or `JsonEditorCard` in `App.tsx`.
 - Keep management API paths centralized through `createManagementClient`; do not add parallel raw `fetch` wrappers.
-- Keep management requests same-origin through `createManagementClient`; do not reintroduce per-browser base-url storage or override helpers.
+- Keep management requests same-origin through `createManagementClient`; keep Bearer-token header logic there too, and do not reintroduce per-browser base-url storage or override helpers.
 - Keep new shared contracts in `types/management.ts` before introducing local inline type copies.
 - Use `@/` imports everywhere under `src/`.
 - Keep app-specific composition in `components/`; treat `components/ui/` as reusable primitives.
