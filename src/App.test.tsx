@@ -49,6 +49,17 @@ function getRequestedUrls() {
   )
 }
 
+function getMatchingRequests(url: string, method?: string) {
+  return fetchMock.mock.calls.filter(([input, init]) => {
+    const requestUrl = typeof input === "string" ? input : "url" in input ? input.url : input.toString()
+    return requestUrl === url && (method ? init?.method === method : true)
+  })
+}
+
+function getJsonRequestBodies(url: string, method?: string) {
+  return getMatchingRequests(url, method).map(([, init]) => JSON.parse(String(init?.body ?? "null")))
+}
+
 function findButton(container: HTMLElement, label: string): HTMLButtonElement {
   const button = Array.from(container.querySelectorAll("button")).find((candidate) =>
     candidate.textContent?.includes(label),
@@ -59,6 +70,19 @@ function findButton(container: HTMLElement, label: string): HTMLButtonElement {
   }
 
   return button
+}
+
+function findAuthFileRow(container: HTMLElement, name: string): HTMLElement {
+  const authFilesSection = container.querySelector("#auth-files")
+  const row = Array.from(authFilesSection?.querySelectorAll("article") ?? []).find((candidate) =>
+    candidate.textContent?.includes(name),
+  )
+
+  if (!(row instanceof HTMLElement)) {
+    throw new Error(`Unable to find auth file row for: ${name}`)
+  }
+
+  return row
 }
 
 function setSectionTop(element: Element, top: number) {
@@ -199,8 +223,55 @@ describe("App", () => {
                 status: "active",
                 status_message: "Ready for interactive use",
                 priority: 0,
-                note: "Local fallback seat",
-                prefix: "team-a",
+                disabled: false,
+                source: "file",
+                usage: {
+                  limits: [
+                    {
+                      label: "Messages",
+                      percentage: 0.25,
+                      used: "10 / 40",
+                    },
+                  ],
+                },
+                usage_probe: {
+                  authIndex: "primary-usage-probe",
+                  method: "POST",
+                  url: "https://chatgpt.com/backend-api/wham/usage",
+                  header: {
+                    Authorization: "Bearer $TOKEN$",
+                    "Content-Type": "application/json",
+                  },
+                  body: {
+                    source: "dashboard",
+                  },
+                },
+              },
+              {
+                id: "auth-backup",
+                name: "backup-codex.json",
+                provider: "codex",
+                label: "Backup Seat",
+                status: "active",
+                status_message: "Warm standby",
+                priority: 2,
+                disabled: false,
+                source: "oauth",
+                usage_probe: {
+                  authIndex: "backup-usage-probe",
+                  method: "GET",
+                  url: "https://chatgpt.com/backend-api/wham/usage/backup",
+                },
+              },
+              {
+                id: "auth-manual",
+                name: "manual-codex.json",
+                provider: "codex",
+                email: "manual@example.com",
+                label: "Manual Seat",
+                status: "active",
+                status_message: "Imported without usage probe",
+                priority: 4,
                 disabled: false,
                 source: "file",
               },
@@ -214,29 +285,84 @@ describe("App", () => {
           })
         case "/v0/management/get-auth-status?state=oauth-state-1":
           return jsonResponse({ status: "wait" })
-        case "/v0/management/auth-files/models?name=primary-codex.json":
-          return jsonResponse({
-            models: [
-              {
-                id: "gpt-5-codex-mini",
-                display_name: "GPT-5 Codex Mini",
-                type: "model",
-                owned_by: "openai",
-              },
-            ],
-          })
       }
 
       if (url === "/v0/management/auth-files/fields" && init?.method === "PATCH") {
         return jsonResponse({ status: "ok" })
       }
 
-      if (url === "/v0/management/auth-files/status" && init?.method === "PATCH") {
-        return jsonResponse({ status: "ok", disabled: true })
-      }
+        if (url === "/v0/management/auth-files/status" && init?.method === "PATCH") {
+          return jsonResponse({ status: "ok", disabled: true })
+        }
 
-      return new Response(`Unexpected URL: ${url}`, { status: 404 })
-    })
+        if (url === "/v0/management/api-call" && init?.method === "POST") {
+          const body = JSON.parse(String(init.body ?? "{}")) as {
+            authIndex?: string
+            url?: string
+          }
+
+          if (body.authIndex === "primary-usage-probe") {
+            return jsonResponse({
+              limits: [
+                {
+                  label: "Messages",
+                  percentage: 0.3,
+                  used: "12 / 40",
+                },
+              ],
+              resets_at: "tomorrow 09:00 UTC",
+            })
+          }
+
+          if (body.authIndex === "backup-usage-probe") {
+            return jsonResponse({
+              status_code: 200,
+              header: {
+                "content-type": ["application/json"],
+              },
+              body: JSON.stringify({
+                plan_type: "team",
+                rate_limit: {
+                  allowed: false,
+                  limit_reached: true,
+                  primary_window: {
+                    used_percent: 30,
+                    limit_window_seconds: 18000,
+                    reset_after_seconds: 13433,
+                    reset_at: 1774275058,
+                  },
+                  secondary_window: {
+                    used_percent: 100,
+                    limit_window_seconds: 604800,
+                    reset_after_seconds: 451949,
+                    reset_at: 1774713574,
+                  },
+                },
+                code_review_rate_limit: {
+                  allowed: true,
+                  limit_reached: false,
+                  primary_window: {
+                    used_percent: 82,
+                    limit_window_seconds: 604800,
+                    reset_after_seconds: 604800,
+                    reset_at: 1774866425,
+                  },
+                  secondary_window: null,
+                },
+                credits: {
+                  has_credits: false,
+                  unlimited: false,
+                  balance: null,
+                },
+              }),
+            })
+          }
+
+          return new Response(`Unexpected usage probe: ${body.url ?? "unknown"}`, { status: 404 })
+        }
+
+        return new Response(`Unexpected URL: ${url}`, { status: 404 })
+      })
 
     vi.stubGlobal("fetch", fetchMock)
   })
@@ -275,6 +401,22 @@ describe("App", () => {
     expect(modelCatalogSection?.querySelector("textarea")).toBeNull()
   })
 
+  it("shows redacted Codex Keys examples for opencode and codex_cli_rs headers", async () => {
+    await act(async () => {
+      root.render(<App />)
+      await flushEffects()
+    })
+
+    const codexKeysSection = container.querySelector("#codex-keys")
+
+    expect(codexKeysSection?.textContent).toContain('"api-key": "[REDACTED]"')
+    expect(codexKeysSection?.textContent).toContain('"base-url": "https://[REDACTED]"')
+    expect(codexKeysSection?.textContent).toContain('"originator": "opencode"')
+    expect(codexKeysSection?.textContent).toContain('opencode/1.3.0 (darwin 25.3.0; arm64) ai-sdk/provider-utils/3.0.20 runtime/bun/1.3.10')
+    expect(codexKeysSection?.textContent).toContain('"originator": "codex_cli_rs"')
+    expect(codexKeysSection?.textContent).toContain('codex_cli_rs/0.116.0 (Mac OS 26.3.1; arm64) Apple_Terminal/466')
+  })
+
   it("places API Keys on its own full-width row before a stacked full-width model catalog", async () => {
     await act(async () => {
       root.render(<App />)
@@ -304,7 +446,7 @@ describe("App", () => {
     expect(Array.from(modelList?.children ?? []).every((child) => child.tagName === "ARTICLE")).toBe(true)
   })
 
-  it("restores OAuth and auth-file management surfaces for local auth workflows", async () => {
+  it("keeps OAuth actions but removes the idle badge and explanatory copy", async () => {
     await act(async () => {
       root.render(<App />)
       await flushEffects()
@@ -312,7 +454,11 @@ describe("App", () => {
 
     expect(container.textContent).toContain("OAuth")
     expect(container.textContent).toContain("owner@example.com")
-    expect(container.textContent).toContain("Local fallback seat")
+    expect(container.textContent).not.toContain("Restore browser-based Codex sign-in without changing the app’s authless same-origin runtime.")
+    expect(container.textContent).not.toContain("OAuth is idle until you start a new browser flow.")
+    expect(container.textContent).not.toContain("Open a fresh browser sign-in flow when you need to reconnect a Codex session.")
+    expect(container.textContent).not.toContain("Start OAuth to open the browser sign-in flow.")
+    expect(container.textContent).not.toContain("idle")
 
     const startOAuthButton = findButton(container, "Start OAuth")
     await act(async () => {
@@ -324,16 +470,6 @@ describe("App", () => {
     expect(getRequestedUrls()).toContain("/v0/management/get-auth-status?state=oauth-state-1")
     expect(openMock).toHaveBeenCalledWith("https://auth.example/codex/start", "_blank")
     expect(container.textContent).toContain("Waiting for browser confirmation")
-
-    const viewModelsButton = findButton(container, "View file models")
-    await act(async () => {
-      viewModelsButton.click()
-      await flushEffects()
-    })
-
-    expect(getRequestedUrls()).toContain("/v0/management/auth-files/models?name=primary-codex.json")
-    expect(container.textContent).toContain("Models for primary-codex.json")
-    expect(container.textContent).toContain("gpt-5-codex-mini")
 
     const saveDetailsButton = findButton(container, "Save details")
     await act(async () => {
@@ -350,9 +486,7 @@ describe("App", () => {
     expect(fieldsRequest?.[1]?.body).toBe(
       JSON.stringify({
         name: "primary-codex.json",
-        prefix: "team-a",
         priority: 0,
-        note: "Local fallback seat",
       }),
     )
 
@@ -374,6 +508,136 @@ describe("App", () => {
         disabled: true,
       }),
     )
+  })
+
+  it("posts a single auth file usage probe to the restored api-call route and merges the response into the compact row", async () => {
+    await act(async () => {
+      root.render(<App />)
+      await flushEffects()
+    })
+
+    const primaryRow = findAuthFileRow(container, "primary-codex.json")
+    expect(primaryRow.textContent).toContain("Messages")
+    expect(primaryRow.textContent).toContain("10 / 40")
+
+    await act(async () => {
+      findButton(primaryRow, "Query usage").click()
+      await flushEffects()
+    })
+
+    expect(getJsonRequestBodies("/v0/management/api-call", "POST")).toContainEqual({
+      authIndex: "primary-usage-probe",
+      method: "POST",
+      url: "https://chatgpt.com/backend-api/wham/usage",
+      header: {
+        Authorization: "Bearer $TOKEN$",
+        "Content-Type": "application/json",
+      },
+      body: {
+        source: "dashboard",
+      },
+    })
+    expect(primaryRow.textContent).toContain("12 / 40")
+    expect(primaryRow.textContent).toContain("tomorrow 09:00 UTC")
+  })
+
+  it("queries usage for every probe-capable auth file from the section-level action", async () => {
+    await act(async () => {
+      root.render(<App />)
+      await flushEffects()
+    })
+
+    await act(async () => {
+      findButton(container, "Query all usage").click()
+      await flushEffects()
+    })
+
+    expect(getJsonRequestBodies("/v0/management/api-call", "POST")).toEqual([
+      {
+        authIndex: "primary-usage-probe",
+        method: "POST",
+        url: "https://chatgpt.com/backend-api/wham/usage",
+        header: {
+          Authorization: "Bearer $TOKEN$",
+          "Content-Type": "application/json",
+        },
+        body: {
+          source: "dashboard",
+        },
+      },
+      {
+        authIndex: "backup-usage-probe",
+        method: "GET",
+        url: "https://chatgpt.com/backend-api/wham/usage/backup",
+      },
+    ])
+
+    const backupRow = findAuthFileRow(container, "backup-codex.json")
+    const usageBars = backupRow.querySelectorAll('[data-slot="auth-usage-bar"]')
+
+    expect(backupRow.textContent).toContain("Plan")
+    expect(backupRow.textContent).toContain("team")
+    expect(backupRow.textContent).toContain("Usages")
+    expect(backupRow.textContent).toContain("5-hour Usage")
+    expect(backupRow.textContent).toContain("30%")
+    expect(backupRow.textContent).toContain("resets in 4h")
+    expect(backupRow.textContent).toContain("Weekly Usage")
+    expect(backupRow.textContent).toContain("100%")
+    expect(backupRow.textContent).toContain("resets in 5d")
+    expect(backupRow.textContent).toContain("Code Review Usage")
+    expect(backupRow.textContent).toContain("82%")
+    expect(backupRow.textContent).toContain("resets in 7d")
+    expect(backupRow.textContent).not.toContain("Core access")
+    expect(backupRow.textContent).not.toContain("Review access")
+    expect(usageBars).toHaveLength(3)
+    expect(backupRow.textContent).toContain("Credits")
+    expect(backupRow.textContent).toContain("No credits")
+  })
+
+  it("renders auth files without models, prefix, or note fields while keeping priority editing", async () => {
+    await act(async () => {
+      root.render(<App />)
+      await flushEffects()
+    })
+
+    const primaryRow = findAuthFileRow(container, "primary-codex.json")
+    const manualRow = findAuthFileRow(container, "manual-codex.json")
+
+    expect(primaryRow.textContent).toContain("Messages")
+    expect(findButton(manualRow, "Query usage").disabled).toBe(true)
+    expect(primaryRow.textContent).not.toContain("Registered models")
+    expect(primaryRow.textContent).not.toContain("View file models")
+    expect(primaryRow.textContent).not.toContain("Prefix")
+    expect(primaryRow.textContent).not.toContain("Note")
+    expect(primaryRow.querySelector('input[aria-label="Priority for primary-codex.json"]')).not.toBeNull()
+  })
+
+  it("renders one stacked usage list with human-readable labels", async () => {
+    await act(async () => {
+      root.render(<App />)
+      await flushEffects()
+    })
+
+    await act(async () => {
+      findButton(container, "Query all usage").click()
+      await flushEffects()
+    })
+
+    const backupRow = findAuthFileRow(container, "backup-codex.json")
+    expect(backupRow.textContent).toContain("Usages")
+    expect(backupRow.textContent).toContain("5-hour Usage")
+    expect(backupRow.textContent).toContain("Weekly Usage")
+    expect(backupRow.textContent).toContain("Code Review Usage")
+    expect(backupRow.textContent).not.toContain("Core access")
+    expect(backupRow.textContent).not.toContain("Review access")
+    expect(backupRow.textContent).not.toContain("Core 5h")
+    expect(backupRow.textContent).not.toContain("Core 7d")
+    expect(backupRow.textContent).not.toContain("Review 7d")
+    expect(backupRow.textContent).not.toContain("Blocked")
+    expect(backupRow.textContent).not.toContain("Allowed")
+    expect(backupRow.textContent).not.toContain("Almost used")
+    expect(backupRow.querySelectorAll('[data-slot="auth-usage-ring"]')).toHaveLength(0)
+    expect(backupRow.querySelectorAll('[data-slot="auth-usage-bar"]')).toHaveLength(3)
   })
 
   it("updates the configuration selector using section visibility", async () => {
@@ -562,9 +826,7 @@ describe("App", () => {
     expect(fieldsRequest?.[1]?.body).toBe(
       JSON.stringify({
         name: "primary-codex.json",
-        prefix: "team-a",
         priority: 0,
-        note: "Local fallback seat",
       }),
     )
   })

@@ -173,4 +173,49 @@ describe("mergeAuthFileUsageResponse", () => {
       },
     })
   })
+
+  it("unwraps wrapped body-string responses before merging usage", () => {
+    const file = {
+      id: "auth-1",
+      name: "Primary account",
+      usage: {
+        cached: {
+          percentage: 0.5,
+        },
+      },
+    }
+
+    const response = {
+      status_code: 200,
+      header: {
+        "content-type": ["application/json"],
+      },
+      body: JSON.stringify({
+        plan_type: "team",
+        rate_limit: {
+          allowed: false,
+          primary_window: {
+            used_percent: 30,
+          },
+        },
+      }),
+    }
+
+    expect(mergeAuthFileUsageResponse(file, response)).toEqual({
+      id: "auth-1",
+      name: "Primary account",
+      usage: {
+        cached: {
+          percentage: 0.5,
+        },
+        plan_type: "team",
+        rate_limit: {
+          allowed: false,
+          primary_window: {
+            used_percent: 30,
+          },
+        },
+      },
+    })
+  })
 })

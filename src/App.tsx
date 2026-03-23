@@ -37,6 +37,10 @@ import {
   ManagementRequestError,
   createManagementClient,
 } from "@/lib/management-api"
+import {
+  getAuthFileUsageProbeRequest,
+  mergeAuthFileUsageResponse,
+} from "@/lib/auth-file-usage"
 import type {
   AuthFile,
   ModelDefinition,
@@ -60,15 +64,44 @@ const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = {
   switchProject: false,
 }
 
-const CODEX_KEYS_PLACEHOLDER = `[
+const CODEX_KEYS_EXAMPLES = [
   {
-    "api-key": "sk-...",
-    "base-url": "https://api.openai.com/v1",
-    "priority": 1,
-    "headers": {
-      "OpenAI-Organization": "org-..."
-    }
+    title: "opencode",
+    config: `{
+  "api-key": "[REDACTED]",
+  "base-url": "https://[REDACTED]",
+  "headers": {
+    "content-type": "application/json",
+    "user-agent": "opencode/1.3.0 (darwin 25.3.0; arm64) ai-sdk/provider-utils/3.0.20 runtime/bun/1.3.10",
+    "originator": "opencode",
+    "accept": "*/*"
   }
+}`,
+  },
+  {
+    title: "codex_cli_rs",
+    config: `{
+  "api-key": "[REDACTED]",
+  "base-url": "https://[REDACTED]",
+  "headers": {
+    "x-codex-turn-metadata": "{\\"turn_id\\":\\"019d1a56-8c29-7f92-abce-dfb9db985389\\",\\"sandbox\\":\\"none\\"}",
+    "x-client-request-id": "019d1a56-8235-7831-bd58-34f839351fd1",
+    "accept": "text/event-stream",
+    "content-type": "application/json",
+    "user-agent": "codex_cli_rs/0.116.0 (Mac OS 26.3.1; arm64) Apple_Terminal/466",
+    "originator": "codex_cli_rs"
+  }
+}`,
+  },
+] as const
+
+const CODEX_KEYS_PLACEHOLDER = `[
+${CODEX_KEYS_EXAMPLES.map(({ config }) =>
+  config
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n"),
+).join(",\n")}
 ]`
 
 function getErrorMessage(error: unknown): string {
@@ -156,9 +189,7 @@ function SettingField({
 
 function createAuthFileDraft(file: AuthFile) {
   return {
-    prefix: file.prefix ?? "",
     priority: file.priority != null ? String(file.priority) : "",
-    note: file.note ?? "",
   }
 }
 
@@ -172,6 +203,345 @@ function formatCompactNumber(value?: number): string | null {
   }
 
   return String(value)
+}
+
+function isUsageRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function formatUsageLabel(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase())
+}
+
+function formatUsagePercentage(value: unknown): string | null {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return null
+  }
+
+  const percent = value <= 1 ? value * 100 : value
+  return `${Math.round(percent)}%`
+}
+
+function formatDurationLabel(seconds: unknown): string | null {
+  if (typeof seconds !== "number" || Number.isNaN(seconds) || seconds < 0) {
+    return null
+  }
+
+  if (seconds >= 86400) {
+    const days = Math.round(seconds / 86400)
+    return `${days}d`
+  }
+
+  if (seconds >= 3600) {
+    const hours = Math.round(seconds / 3600)
+    return `${hours}h`
+  }
+
+  if (seconds >= 60) {
+    const minutes = Math.round(seconds / 60)
+    return `${minutes}m`
+  }
+
+  return `${Math.round(seconds)}s`
+}
+
+type UsageTone = "default" | "success" | "warning" | "destructive"
+
+interface AuthUsageWindowSummary {
+  detail: string | null
+  label: string
+  percentage: number
+  tone: UsageTone
+}
+
+function clampUsagePercentage(value: unknown): number | null {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return null
+  }
+
+  const percentage = value <= 1 ? value * 100 : value
+  return Math.min(100, Math.max(0, Math.round(percentage)))
+}
+
+function getUsageToneClasses(tone: UsageTone) {
+  if (tone === "success") {
+    return {
+      panelClassName: "border-emerald-500/15 bg-emerald-500/5",
+      barClassName: "bg-emerald-500",
+      textClassName: "text-emerald-700",
+    }
+  }
+
+  if (tone === "warning") {
+    return {
+      panelClassName: "border-amber-500/15 bg-amber-500/5",
+      barClassName: "bg-amber-500",
+      textClassName: "text-amber-700",
+    }
+  }
+
+  if (tone === "destructive") {
+    return {
+      panelClassName: "border-destructive/15 bg-destructive/5",
+      barClassName: "bg-destructive",
+      textClassName: "text-destructive",
+    }
+  }
+
+  return {
+    panelClassName: "border-border/70 bg-background/80",
+    barClassName: "bg-muted-foreground",
+    textClassName: "text-foreground",
+  }
+}
+
+function getWindowTone(percentage: number): UsageTone {
+  if (percentage >= 100) {
+    return "destructive"
+  }
+
+  if (percentage >= 75) {
+    return "warning"
+  }
+
+  return "success"
+}
+
+function getUsageWindowSummary(label: string, window: Record<string, unknown>): AuthUsageWindowSummary | null {
+  const percentage = clampUsagePercentage(window.used_percent ?? window.percentage)
+  if (percentage === null) {
+    return null
+  }
+
+  const reset = formatDurationLabel(window.reset_after_seconds)
+
+	return {
+		label,
+		percentage,
+		tone: getWindowTone(percentage),
+		detail: reset ? `resets in ${reset}` : null,
+	}
+}
+
+function getUsageWindowSummaries(file: AuthFile): AuthUsageWindowSummary[] {
+	const rateLimit = isUsageRecord(file.usage?.rate_limit) ? file.usage?.rate_limit : null
+	const reviewRateLimit = isUsageRecord(file.usage?.code_review_rate_limit)
+		? file.usage?.code_review_rate_limit
+		: null
+
+	const windows: Array<AuthUsageWindowSummary | null> = [
+		rateLimit && isUsageRecord(rateLimit.primary_window)
+			? getUsageWindowSummary("5-hour Usage", rateLimit.primary_window)
+			: null,
+		rateLimit && isUsageRecord(rateLimit.secondary_window)
+			? getUsageWindowSummary("Weekly Usage", rateLimit.secondary_window)
+			: null,
+		reviewRateLimit && isUsageRecord(reviewRateLimit.primary_window)
+			? getUsageWindowSummary("Code Review Usage", reviewRateLimit.primary_window)
+			: null,
+	]
+
+	return windows.filter((window): window is AuthUsageWindowSummary => Boolean(window))
+}
+
+function getCreditsEntry(value: unknown): { label: string; value: string } | null {
+  if (!isUsageRecord(value)) {
+    return null
+  }
+
+  if (value.unlimited === true) {
+    return { label: "Credits", value: "Unlimited" }
+  }
+
+  if (typeof value.balance === "string" && value.balance.trim() !== "") {
+    return { label: "Credits", value: `${value.balance.trim()} left` }
+  }
+
+  if (value.has_credits === false) {
+    return { label: "Credits", value: "No credits" }
+  }
+
+  return null
+}
+
+function formatUsageValue(value: unknown): string | null {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value)
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => formatUsageValue(entry))
+      .filter((entry): entry is string => Boolean(entry))
+
+    return parts.length ? parts.join(", ") : null
+  }
+
+  if (!isUsageRecord(value)) {
+    return null
+  }
+
+  const parts = [
+    typeof value.used === "string" ? value.used : null,
+    typeof value.remaining === "string" ? `Remaining ${value.remaining}` : null,
+    formatUsagePercentage(value.percentage),
+  ].filter((entry): entry is string => Boolean(entry))
+
+  return parts.length ? parts.join(" · ") : null
+}
+
+function getAuthFileUsageMetaEntries(usage?: Record<string, unknown>) {
+  if (!usage) {
+    return []
+  }
+
+  const entries: Array<{ label: string; value: string }> = []
+
+  if (typeof usage.plan_type === "string" && usage.plan_type.trim() !== "") {
+    entries.push({ label: "Plan", value: usage.plan_type.trim() })
+  }
+
+  const creditsEntry = getCreditsEntry(usage.credits)
+  if (creditsEntry) {
+    entries.push(creditsEntry)
+  }
+
+  const limits = Array.isArray(usage.limits) ? usage.limits : []
+
+  limits.forEach((limit) => {
+    if (!isUsageRecord(limit)) {
+      return
+    }
+
+    const label = typeof limit.label === "string" && limit.label.trim() !== ""
+      ? limit.label.trim()
+      : "Usage"
+    const value = formatUsageValue(limit)
+
+    if (value) {
+      entries.push({ label, value })
+    }
+  })
+
+  Object.entries(usage).forEach(([key, value]) => {
+    if (["limits", "plan_type", "rate_limit", "code_review_rate_limit", "credits"].includes(key)) {
+      return
+    }
+
+    const formatted = formatUsageValue(value)
+    if (formatted) {
+      entries.push({ label: formatUsageLabel(key), value: formatted })
+    }
+  })
+
+  return entries.slice(0, 8)
+}
+
+function AuthUsageBar({ window }: { window: AuthUsageWindowSummary }) {
+  const toneClasses = getUsageToneClasses(window.tone)
+
+  return (
+    <div
+      data-slot="auth-usage-bar"
+      className="rounded-lg border border-border/70 bg-background/80 px-3 py-2.5"
+    >
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+        <div className="text-[11px] font-medium text-foreground">
+          {window.label}
+        </div>
+        <div className="flex items-baseline gap-2 text-[11px] text-muted-foreground sm:justify-end">
+          <span className={`text-xs font-semibold ${toneClasses.textClassName}`}>
+            {window.percentage}%
+          </span>
+          {window.detail ? <span>{window.detail}</span> : null}
+        </div>
+      </div>
+
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted/70">
+        <div
+          className={`h-full rounded-full transition-[width] ${toneClasses.barClassName}`}
+          style={{ width: `${window.percentage}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function AuthFileUsageSummary({
+  file,
+  canQueryUsage,
+}: {
+  file: AuthFile
+	canQueryUsage: boolean
+}) {
+	const usageWindows = getUsageWindowSummaries(file)
+	const usageEntries = getAuthFileUsageMetaEntries(file.usage)
+	const hasUsageData = usageWindows.length > 0 || usageEntries.length > 0
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-muted/10 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Usage summary
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Compact access status and usage windows for this auth file.
+          </div>
+        </div>
+        {!canQueryUsage ? (
+          <Badge variant="outline" className="text-[11px] text-muted-foreground">
+            Probe unavailable
+          </Badge>
+        ) : null}
+      </div>
+
+		{hasUsageData ? (
+			<div className="space-y-3">
+				{usageWindows.length ? (
+					<div className="rounded-xl border border-border/70 bg-background/80 px-3 py-3">
+						<div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+							Usages
+						</div>
+						<div className="mt-3 space-y-2">
+							{usageWindows.map((window) => (
+								<AuthUsageBar key={window.label} window={window} />
+							))}
+						</div>
+					</div>
+				) : null}
+
+          {usageEntries.length ? (
+            <div className="flex flex-wrap gap-2">
+              {usageEntries.map((entry) => (
+                <div
+                  key={`${entry.label}:${entry.value}`}
+                  className="min-w-[118px] rounded-lg border border-border/70 bg-background/80 px-3 py-2"
+                >
+                  <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    {entry.label}
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-foreground">{entry.value}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+          {canQueryUsage
+            ? "Query usage to populate this auth file summary."
+            : "This auth file does not expose a usage probe."}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ModelCard({ model }: { model: ModelDefinition }) {
@@ -273,32 +643,33 @@ function ModelCard({ model }: { model: ModelDefinition }) {
 function AuthFileCard({
   file,
   draft,
-  models,
   disabled,
   onDownload,
   onDraftChange,
+  onQueryUsage,
   onSaveDetails,
   onToggleDisabled,
-  onLoadModels,
 }: {
   file: AuthFile
   draft: ReturnType<typeof createAuthFileDraft>
-  models?: ModelDefinition[]
   disabled: boolean
   onDownload: (file: AuthFile) => void
-  onDraftChange: (name: string, field: "prefix" | "priority" | "note", value: string) => void
+  onDraftChange: (name: string, field: "priority", value: string) => void
+  onQueryUsage: (file: AuthFile) => void
   onSaveDetails: (file: AuthFile) => void
   onToggleDisabled: (file: AuthFile) => void
-  onLoadModels: (file: AuthFile) => void
 }) {
   const statusLabel = file.disabled ? "disabled" : file.status || "active"
+  const usageProbeRequest = getAuthFileUsageProbeRequest(file)
+  const inlineIdentity = file.email || file.label || file.id
+  const hasDraftPriority = draft.priority.trim() !== ""
 
   return (
-    <article className="space-y-4 rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5 transition-all hover:border-primary/20 hover:shadow-lg hover:shadow-primary/8">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+    <article className="space-y-3 rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5 transition-all hover:border-primary/20 hover:shadow-lg hover:shadow-primary/8">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-muted/30 text-primary">
-            <FileText size={18} />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-muted/30 text-primary">
+            <FileText size={16} />
           </div>
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -317,30 +688,36 @@ function AuthFileCard({
                   {file.source}
                 </Badge>
               ) : null}
-              {file.priority != null ? (
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="rounded-full border border-border/70 bg-muted/20 px-2.5 py-1">
+                {inlineIdentity}
+              </span>
+              {file.status_message ? (
+                <span className="rounded-full border border-border/70 bg-muted/20 px-2.5 py-1">
+                  {file.status_message}
+                </span>
+              ) : null}
+              {hasDraftPriority ? (
                 <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                  Priority {file.priority}
+                  Priority {draft.priority.trim()}
                 </Badge>
               ) : null}
             </div>
 
-            <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
-              <div>{file.email || file.label || file.id}</div>
-              <div>{file.status_message || "Ready for local use"}</div>
-            </div>
-
-            {draft.note ? (
-              <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-                {draft.note}
-              </div>
-            ) : null}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2 xl:justify-end">
-          <Button variant="outline" size="sm" onClick={() => onLoadModels(file)} disabled={disabled}>
-            <BookOpen size={14} className="mr-2" />
-            View file models
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onQueryUsage(file)}
+            disabled={disabled || !usageProbeRequest}
+          >
+            <RefreshCw size={14} className="mr-2" />
+            Query usage
           </Button>
           <Button variant="outline" size="sm" onClick={() => onDownload(file)} disabled={disabled}>
             <Download size={14} className="mr-2" />
@@ -353,58 +730,17 @@ function AuthFileCard({
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3">
-            <label htmlFor={`auth-prefix-${file.name}`} className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Prefix
-            </label>
-            <Input
-              id={`auth-prefix-${file.name}`}
-              aria-label={`Prefix for ${file.name}`}
-              value={draft.prefix}
-              onChange={(event) => onDraftChange(file.name, "prefix", event.target.value)}
-              className="bg-background"
-            />
-          </div>
-          <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3">
-            <label htmlFor={`auth-priority-${file.name}`} className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Priority
-            </label>
-            <Input
-              id={`auth-priority-${file.name}`}
-              type="number"
-              min={0}
-              aria-label={`Priority for ${file.name}`}
-              value={draft.priority}
-              onChange={(event) => onDraftChange(file.name, "priority", event.target.value)}
-              className="bg-background"
-            />
-          </div>
-          <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3 sm:col-span-2">
-            <label htmlFor={`auth-note-${file.name}`} className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Note
-            </label>
-            <Textarea
-              id={`auth-note-${file.name}`}
-              aria-label={`Note for ${file.name}`}
-              value={draft.note}
-              onChange={(event) => onDraftChange(file.name, "note", event.target.value)}
-              className="min-h-28 bg-background"
-            />
-          </div>
-        </div>
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+        <AuthFileUsageSummary file={file} canQueryUsage={Boolean(usageProbeRequest)} />
 
-        <div className="space-y-3 rounded-xl border border-border/70 bg-muted/10 p-3">
-          <div className="flex items-center justify-between gap-3">
+        <div className="rounded-xl border border-border/70 bg-muted/10 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Models for {file.name}
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Edit details
               </div>
-              <div className="text-sm text-foreground">
-                {models?.length
-                  ? "Registered models exposed by this auth file."
-                  : "Load file-specific models to inspect the runtime catalog."}
+              <div className="text-xs text-muted-foreground">
+                Keep auth-file routing priority in sync without expanding the row.
               </div>
             </div>
             <Button size="sm" onClick={() => onSaveDetails(file)} disabled={disabled}>
@@ -413,32 +749,25 @@ function AuthFileCard({
             </Button>
           </div>
 
-          {models?.length ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {models.map((model) => (
-                <div key={model.id} className="rounded-xl border border-border/70 bg-background p-3 shadow-sm shadow-black/5">
-                  <div className="text-sm font-semibold text-foreground">{model.display_name || model.id}</div>
-                  <div className="text-xs text-muted-foreground">{model.id}</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {model.owned_by ? (
-                      <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                        {model.owned_by}
-                      </Badge>
-                    ) : null}
-                    {model.type ? (
-                      <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                        {model.type}
-                      </Badge>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
+          <div className="space-y-2">
+            <div className="space-y-2">
+              <label htmlFor={`auth-priority-${file.name}`} className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                Priority
+              </label>
+              <Input
+                id={`auth-priority-${file.name}`}
+                type="number"
+                min={0}
+                aria-label={`Priority for ${file.name}`}
+                value={draft.priority}
+                onChange={(event) => onDraftChange(file.name, "priority", event.target.value)}
+                className="bg-background"
+              />
             </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-border bg-background/70 p-4 text-sm text-muted-foreground">
-              No file-specific models loaded yet.
+            <div className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+              Lower values are preferred first. Leave the field blank to fall back to backend ordering.
             </div>
-          )}
+          </div>
         </div>
       </div>
     </article>
@@ -464,7 +793,6 @@ function App() {
   const [authFileDrafts, setAuthFileDrafts] = useState<
     Record<string, ReturnType<typeof createAuthFileDraft>>
   >({})
-  const [authFileModels, setAuthFileModels] = useState<Record<string, ModelDefinition[]>>({})
   const [oauthSession, setOAuthSession] = useState<{
     state: string | null
     status: "idle" | "launching" | "wait" | "ok" | "error"
@@ -472,7 +800,7 @@ function App() {
   }>({
     state: null,
     status: "idle",
-    message: "OAuth is idle until you start a new browser flow.",
+    message: "",
   })
   const [activeSection, setActiveSection] = useState<string>("codex-keys")
 
@@ -825,18 +1153,6 @@ function App() {
     }, "OAuth flow opened in new tab").catch(() => undefined)
   }
 
-  async function loadAuthFileModels(file: AuthFile) {
-    await withBusy(`load-auth-models:${file.name}`, async () => {
-      const response = await client.getJson<{ models: ModelDefinition[] }>(
-        `/auth-files/models?name=${encodeURIComponent(file.name)}`,
-      )
-      setAuthFileModels((current) => ({
-        ...current,
-        [file.name]: response.models,
-      }))
-    })
-  }
-
   async function saveAuthFileDetails(file: AuthFile) {
     const draft = authFileDrafts[file.name] ?? createAuthFileDraft(file)
     const normalizedPriority = draft.priority.trim() === "" ? undefined : Number(draft.priority)
@@ -844,12 +1160,59 @@ function App() {
     await withBusy(`save-auth-fields:${file.name}`, async () => {
       await client.patchJson<StatusOk>("/auth-files/fields", {
         name: file.name,
-        prefix: draft.prefix,
         priority: normalizedPriority,
-        note: draft.note,
       })
       await loadDashboard(false)
     }, "Auth file details saved")
+  }
+
+  async function queryAuthFileUsage(file: AuthFile) {
+    const request = getAuthFileUsageProbeRequest(file)
+    if (!request) {
+      return
+    }
+
+    await withBusy(`query-auth-usage:${file.name}`, async () => {
+      const response = await client.postJson<unknown>("/api-call", request)
+      setAuthFiles((current) =>
+        current.map((currentFile) =>
+          currentFile.id === file.id
+            ? mergeAuthFileUsageResponse(currentFile, response)
+            : currentFile,
+        ),
+      )
+    }, `${file.name} usage refreshed`)
+  }
+
+  async function queryAllAuthFileUsage() {
+    const filesWithProbes = authFiles
+      .map((file) => ({ file, request: getAuthFileUsageProbeRequest(file) }))
+      .filter(
+        (entry): entry is { file: AuthFile; request: NonNullable<ReturnType<typeof getAuthFileUsageProbeRequest>> } =>
+          Boolean(entry.request),
+      )
+
+    if (!filesWithProbes.length) {
+      return
+    }
+
+    await withBusy("query-all-auth-usage", async () => {
+      const responses = await Promise.all(
+        filesWithProbes.map(async ({ file, request }) => ({
+          id: file.id,
+          usage: await client.postJson<unknown>("/api-call", request),
+        })),
+      )
+
+      setAuthFiles((current) =>
+        current.map((currentFile) => {
+          const match = responses.find((response) => response.id === currentFile.id)
+          return match
+            ? mergeAuthFileUsageResponse(currentFile, match.usage)
+            : currentFile
+        }),
+      )
+    }, "Auth file usage refreshed")
   }
 
   async function toggleAuthFileDisabled(file: AuthFile) {
@@ -864,13 +1227,13 @@ function App() {
 
   function updateAuthFileDraft(
     name: string,
-    field: "prefix" | "priority" | "note",
+    field: "priority",
     value: string,
   ) {
     setAuthFileDrafts((current) => ({
       ...current,
       [name]: {
-        ...(current[name] ?? { prefix: "", priority: "", note: "" }),
+        ...(current[name] ?? { priority: "" }),
         [field]: value,
       },
     }))
@@ -880,6 +1243,8 @@ function App() {
     setActiveSection(id)
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
+
+  const probeCapableAuthFiles = authFiles.filter((file) => getAuthFileUsageProbeRequest(file))
 
   return (
     <div className="min-h-screen bg-muted/30 text-foreground font-sans selection:bg-primary/15">
@@ -983,18 +1348,40 @@ function App() {
                 disabled={busyAction !== null || connectionState !== "ready"}
                 placeholder={CODEX_KEYS_PLACEHOLDER}
                 helper={
-                  <div className="grid gap-4 rounded-2xl border border-border/70 bg-muted/20 p-4 lg:grid-cols-[1.2fr_0.8fr]">
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        Codex provider schema
-                      </p>
-                      <p className="text-sm leading-relaxed text-foreground">
-                        Paste the local provider array here. Keep Codex Keys as the top-level source of truth and let the dashboard auto-load the catalog beneath it.
-                      </p>
+                  <div className="space-y-4 rounded-2xl border border-border/70 bg-muted/20 p-4">
+                    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          Codex provider schema
+                        </p>
+                        <p className="text-sm leading-relaxed text-foreground">
+                          Paste the local provider array here. Keep Codex Keys as the top-level source of truth and let the dashboard auto-load the catalog beneath it.
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-background/80 p-3 text-[11px] leading-relaxed text-muted-foreground">
+                        Required: <code className="font-medium text-primary">api-key</code>, <code className="font-medium text-primary">base-url</code>.<br />
+                        Optional: <code className="font-medium text-primary">priority</code>, <code className="font-medium text-primary">headers</code>, <code className="font-medium text-primary">websockets</code>.
+                      </div>
                     </div>
-                    <div className="rounded-xl border border-border/70 bg-background/80 p-3 text-[11px] leading-relaxed text-muted-foreground">
-                      Required: <code className="font-medium text-primary">api-key</code>, <code className="font-medium text-primary">base-url</code>.<br />
-                      Optional: <code className="font-medium text-primary">priority</code>, <code className="font-medium text-primary">headers</code>, <code className="font-medium text-primary">websockets</code>.
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Redacted examples
+                      </p>
+                      <div className="grid gap-3 xl:grid-cols-2">
+                        {CODEX_KEYS_EXAMPLES.map((example) => (
+                          <div
+                            key={example.title}
+                            className="rounded-xl border border-border/70 bg-background/80 p-3"
+                          >
+                            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                              {example.title}
+                            </p>
+                            <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-foreground">
+                              {example.config}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 }
@@ -1183,63 +1570,80 @@ function App() {
                 title="Auth Files"
                 description="Manage local authentication material and OAuth sessions."
                 actions={
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-9"
-                    onClick={() => void startOAuth()}
-                    disabled={busyAction !== null}
-                  >
-                    <ShieldCheck size={14} className="mr-2 text-primary" />
-                    Start OAuth
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-9"
+                      onClick={() => void queryAllAuthFileUsage()}
+                      disabled={busyAction !== null || connectionState !== "ready" || probeCapableAuthFiles.length === 0}
+                    >
+                      <RefreshCw size={14} className="mr-2" />
+                      Query all usage
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-9"
+                      onClick={() => void startOAuth()}
+                      disabled={busyAction !== null}
+                    >
+                      <ShieldCheck size={14} className="mr-2 text-primary" />
+                      Start OAuth
+                    </Button>
+                  </div>
                 }
               >
                 <div className="space-y-4">
-                  <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_repeat(2,minmax(0,0.5fr))]">
                     <div className="rounded-2xl border border-border/80 bg-muted/15 p-4 shadow-sm shadow-black/5">
-                      <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
                         <div>
                           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                             OAuth
                           </div>
-                          <div className="text-sm text-foreground">
-                            Restore browser-based Codex sign-in without changing the app’s authless same-origin runtime.
-                          </div>
                         </div>
-                        <StatusPill
-                          label={oauthSession.status}
-                          tone={
-                            oauthSession.status === "ok"
-                              ? "success"
-                              : oauthSession.status === "error"
-                                ? "destructive"
-                                : oauthSession.status === "wait" || oauthSession.status === "launching"
-                                  ? "warning"
-                                  : "default"
-                          }
-                        />
+                        {oauthSession.status !== "idle" ? (
+                          <StatusPill
+                            label={oauthSession.status}
+                            tone={
+                              oauthSession.status === "ok"
+                                ? "success"
+                                : oauthSession.status === "error"
+                                  ? "destructive"
+                                  : oauthSession.status === "wait" || oauthSession.status === "launching"
+                                    ? "warning"
+                                    : "default"
+                            }
+                          />
+                        ) : null}
                       </div>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
-                        {oauthSession.message}
+                      {oauthSession.status !== "idle" ? (
+                        <div className="rounded-xl border border-border/70 bg-background/80 p-3 text-sm text-muted-foreground">
+                          {oauthSession.message}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Managed files
+                      </div>
+                      <div className="mt-1 text-2xl font-semibold text-foreground">{authFiles.length}</div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        {authFiles.filter((file) => !file.disabled).length} active seats
                       </div>
                     </div>
 
                     <div className="rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5">
-                      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        Local auth summary
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Usage-ready files
                       </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
-                          <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Managed files</div>
-                          <div className="mt-1 text-2xl font-semibold text-foreground">{authFiles.length}</div>
-                        </div>
-                        <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
-                          <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Active seats</div>
-                          <div className="mt-1 text-2xl font-semibold text-foreground">
-                            {authFiles.filter((file) => !file.disabled).length}
-                          </div>
-                        </div>
+                      <div className="mt-1 text-2xl font-semibold text-foreground">{probeCapableAuthFiles.length}</div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        {probeCapableAuthFiles.length > 0
+                          ? "Ready for per-file or batch usage refresh."
+                          : "No auth files expose usage probes."}
                       </div>
                     </div>
                   </div>
@@ -1250,13 +1654,12 @@ function App() {
                         key={file.id}
                         file={file}
                         draft={authFileDrafts[file.name] ?? createAuthFileDraft(file)}
-                        models={authFileModels[file.name]}
                         disabled={busyAction !== null || connectionState !== "ready"}
                         onDownload={downloadAuthFile}
                         onDraftChange={updateAuthFileDraft}
+                        onQueryUsage={queryAuthFileUsage}
                         onSaveDetails={saveAuthFileDetails}
                         onToggleDisabled={toggleAuthFileDisabled}
-                        onLoadModels={loadAuthFileModels}
                       />
                     ))
                   ) : (

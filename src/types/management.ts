@@ -29,7 +29,6 @@ export interface AuthFile {
   name: string
   type?: string
   provider?: string
-  prefix?: string
   proxy_url?: string
   label?: string
   email?: string
@@ -46,7 +45,6 @@ export interface AuthFile {
   last_refresh?: string
   next_retry_after?: string
   priority?: number
-  note?: string
   account_type?: string
   account?: string
   id_token?: {

@@ -8,6 +8,30 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+function normalizeUsagePayload(payload: unknown): Record<string, unknown> | null {
+  if (!isObjectRecord(payload)) {
+    return null
+  }
+
+  const body = payload.body
+  if (typeof body === "string") {
+    try {
+      const parsed = JSON.parse(body)
+      if (isObjectRecord(parsed)) {
+        return parsed
+      }
+    } catch {
+      return payload
+    }
+  }
+
+  if (isObjectRecord(body)) {
+    return body
+  }
+
+  return payload
+}
+
 function isJsonValue(value: unknown): value is JsonValue {
   if (
     value === null ||
@@ -65,7 +89,8 @@ export function getAuthFileUsageProbeRequest(file: AuthFile): ManagementApiCallR
 }
 
 export function mergeAuthFileUsageResponse(file: AuthFile, payload: unknown): AuthFile {
-  if (!isObjectRecord(payload)) {
+  const normalizedPayload = normalizeUsagePayload(payload)
+  if (!normalizedPayload) {
     return file
   }
 
@@ -75,7 +100,7 @@ export function mergeAuthFileUsageResponse(file: AuthFile, payload: unknown): Au
     ...file,
     usage: {
       ...existingUsage,
-      ...payload,
+      ...normalizedPayload,
     },
   }
 }
