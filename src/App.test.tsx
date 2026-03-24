@@ -69,6 +69,10 @@ function getJsonRequestBodies(url: string, method?: string) {
   return getMatchingRequests(url, method).map(([, init]) => JSON.parse(String(init?.body ?? "null")))
 }
 
+function getRequestHeaders(url: string, method?: string) {
+  return getMatchingRequests(url, method).map(([, init]) => new Headers(init?.headers))
+}
+
 function findButton(container: ParentNode, label: string): HTMLButtonElement {
   const button = Array.from(container.querySelectorAll("button")).find((candidate) =>
     candidate.textContent?.includes(label),
@@ -171,9 +175,19 @@ function expectNoLegacyRequests() {
   expect(requestedUrls.some((url) => url.includes("/auth-files/fields"))).toBe(false)
 }
 
-async function renderApp(root: Root, origin = DEFAULT_BACKEND_ORIGIN) {
+async function renderApp(
+  root: Root,
+  origin = DEFAULT_BACKEND_ORIGIN,
+  managementPassword = "",
+) {
   await act(async () => {
-    root.render(<App key={origin} backendOrigin={origin} />)
+    root.render(
+      <App
+        key={`${origin}:${managementPassword}`}
+        backendOrigin={origin}
+        managementPassword={managementPassword}
+      />,
+    )
     await flushEffects()
   })
 }
@@ -414,6 +428,21 @@ describe("App", () => {
     expect(container.textContent).not.toContain("Codex Keys")
     expect(container.textContent).toContain("Usage-ready files")
     expectNoLegacyRequests()
+  })
+
+  it("passes the management password into dashboard requests", async () => {
+    await renderApp(root, DEFAULT_BACKEND_ORIGIN, "management-open-sesame")
+
+    const headersByRequest = [
+      ...getRequestHeaders(managementUrl("/runtime-settings")),
+      ...getRequestHeaders(managementUrl("/api-keys")),
+      ...getRequestHeaders(managementUrl("/auth-files")),
+    ]
+
+    expect(headersByRequest).toHaveLength(3)
+    headersByRequest.forEach((headers) => {
+      expect(headers.get("Authorization")).toBe("Bearer management-open-sesame")
+    })
   })
 
   it("saves api keys and runtime settings through the redesigned aggregate endpoints", async () => {

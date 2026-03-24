@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
-import { setupBackendSelector } from '@/bootstrap/backend-selector'
+import { setupBackendSelector, type BackendSelection } from '@/bootstrap/backend-selector'
 import './index.css'
 
 const rootElement = document.getElementById("root")
@@ -13,20 +13,26 @@ if (!(rootElement instanceof HTMLDivElement)) {
 const appRootElement: HTMLDivElement = rootElement
 const root = createRoot(appRootElement)
 const backendSelector = setupBackendSelector()
+let renderRevision = 0
 
-function renderApp(backendOrigin: string) {
+function renderApp(selection: BackendSelection) {
+  renderRevision += 1
   appRootElement.hidden = false
   root.render(
     <StrictMode>
-      <App key={backendOrigin} backendOrigin={backendOrigin} />
+      <App
+        key={renderRevision}
+        backendOrigin={selection.backendOrigin}
+        managementPassword={selection.managementPassword}
+      />
     </StrictMode>,
   )
 }
 
-backendSelector.subscribe((backendOrigin) => {
-  renderApp(backendOrigin)
+backendSelector.subscribe((selection) => {
+  renderApp(selection)
 })
 
-if (backendSelector.currentOrigin) {
-  renderApp(backendSelector.currentOrigin)
+if (backendSelector.currentSelection) {
+  renderApp(backendSelector.currentSelection)
 }

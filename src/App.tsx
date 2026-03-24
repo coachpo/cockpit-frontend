@@ -744,9 +744,10 @@ function AuthFileCard({
 
 interface AppProps {
   backendOrigin: string
+  managementPassword: string
 }
 
-function App({ backendOrigin }: AppProps) {
+function App({ backendOrigin, managementPassword }: AppProps) {
   const [connectionState, setConnectionState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle")
@@ -775,7 +776,10 @@ function App({ backendOrigin }: AppProps) {
   const [oauthCallbackUrlDraft, setOAuthCallbackUrlDraft] = useState("")
   const [activeSection, setActiveSection] = useState<string>("api-keys")
 
-  const client = useMemo(() => createManagementClient(backendOrigin), [backendOrigin])
+  const client = useMemo(
+    () => createManagementClient(backendOrigin, managementPassword),
+    [backendOrigin, managementPassword],
+  )
   const observer = useRef<IntersectionObserver | null>(null)
   const activeSectionRef = useRef(activeSection)
 
