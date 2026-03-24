@@ -1,3 +1,4 @@
+import { normalizeBackendOrigin } from "@/lib/backend-origin"
 import { MANAGEMENT_BASE_PATH } from "@/types/management"
 
 export class ManagementRequestError extends Error {
@@ -16,9 +17,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function buildManagementUrl(path: string): string {
+function buildManagementUrl(backendOrigin: string, path: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
-  return `${MANAGEMENT_BASE_PATH}${normalizedPath}`
+  return new URL(`${MANAGEMENT_BASE_PATH}${normalizedPath}`, backendOrigin).toString()
 }
 
 async function extractErrorDetails(response: Response): Promise<string> {
@@ -45,11 +46,12 @@ function buildHeaders(
 }
 
 async function request<T>(
+  backendOrigin: string,
   path: string,
   init?: RequestInit,
   parser?: (response: Response) => Promise<T>,
 ): Promise<T> {
-  const response = await fetch(buildManagementUrl(path), {
+  const response = await fetch(buildManagementUrl(backendOrigin, path), {
     ...init,
     headers: buildHeaders(init?.headers),
   })
@@ -70,22 +72,24 @@ async function request<T>(
   return (await response.json()) as T
 }
 
-export function createManagementClient() {
+export function createManagementClient(backendOrigin: string) {
+  const resolvedBackendOrigin = normalizeBackendOrigin(backendOrigin)
+
   return {
     getJson<T>(path: string) {
-      return request<T>(path)
+      return request<T>(resolvedBackendOrigin, path)
     },
 
     getText(path: string) {
-      return request<string>(path, undefined, (response) => response.text())
+      return request<string>(resolvedBackendOrigin, path, undefined, (response) => response.text())
     },
 
     getBlob(path: string) {
-      return request<Blob>(path, undefined, (response) => response.blob())
+      return request<Blob>(resolvedBackendOrigin, path, undefined, (response) => response.blob())
     },
 
     postJson<T>(path: string, body?: unknown) {
-      return request<T>(path, {
+      return request<T>(resolvedBackendOrigin, path, {
         method: "POST",
         ...(body === undefined
           ? {}
@@ -99,7 +103,7 @@ export function createManagementClient() {
     },
 
     putJson<T>(path: string, body: unknown) {
-      return request<T>(path, {
+      return request<T>(resolvedBackendOrigin, path, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -109,7 +113,7 @@ export function createManagementClient() {
     },
 
     patchJson<T>(path: string, body: unknown) {
-      return request<T>(path, {
+      return request<T>(resolvedBackendOrigin, path, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -119,7 +123,7 @@ export function createManagementClient() {
     },
 
     delete<T>(path: string) {
-      return request<T>(path, {
+      return request<T>(resolvedBackendOrigin, path, {
         method: "DELETE",
       })
     },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   LayoutDashboard,
   Settings2,
@@ -39,8 +39,8 @@ import type {
   ApiKeysEnvelope,
   AuthFile,
   AuthFilesEnvelope,
-  OAuthProvider,
   OAuthSessionCallbackRequest,
+  OAuthProvider,
   OAuthSessionCreateRequest,
   OAuthSessionCreateResponse,
   OAuthSessionStatusResponse,
@@ -55,7 +55,6 @@ const NAV_ITEMS = [
   { id: "auth-files", label: "Auth Files", icon: FileText },
 ] as const
 
-const CALLBACK_PATH = "/codex/callback"
 const OAUTH_PROVIDER: OAuthProvider = "codex"
 
 const DEFAULT_RUNTIME_SETTINGS: RuntimeSettingsFormState = {
@@ -88,11 +87,6 @@ function toStringArray(value: unknown): string[] {
     return []
   }
   return value.filter((item): item is string => typeof item === "string")
-}
-
-function isCodexCallbackPath(pathname: string): boolean {
-  const normalizedPath = pathname.replace(/\/+$/, "") || "/"
-  return normalizedPath === CALLBACK_PATH
 }
 
 function toRuntimeSettingsFormState(settings: RuntimeSettings): RuntimeSettingsFormState {
@@ -640,8 +634,11 @@ function AuthFileCard({
   )
 }
 
-function App() {
-  const isCallbackRoute = isCodexCallbackPath(window.location.pathname)
+interface AppProps {
+  backendOrigin: string
+}
+
+function App({ backendOrigin }: AppProps) {
   const [connectionState, setConnectionState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle")
@@ -667,22 +664,30 @@ function App() {
     status: "idle",
     message: "",
   })
-  const [callbackStatus, setCallbackStatus] = useState<{
-    status: "idle" | "submitting" | "success" | "error"
-    message: string
-  }>({
-    status: "idle",
-    message: "",
-  })
+  const [oauthCallbackUrlDraft, setOAuthCallbackUrlDraft] = useState("")
   const [activeSection, setActiveSection] = useState<string>("api-keys")
 
-  const client = useRef(createManagementClient()).current
+  const client = useMemo(() => createManagementClient(backendOrigin), [backendOrigin])
   const observer = useRef<IntersectionObserver | null>(null)
   const activeSectionRef = useRef(activeSection)
 
   useEffect(() => {
     activeSectionRef.current = activeSection
   }, [activeSection])
+
+  useEffect(() => {
+    if (!backendOrigin) {
+      return
+    }
+
+    setOAuthCallbackUrlDraft("")
+  }, [backendOrigin])
+
+  useEffect(() => {
+    if (oauthSession.status !== "pending" || !oauthSession.state) {
+      setOAuthCallbackUrlDraft("")
+    }
+  }, [oauthSession.state, oauthSession.status])
 
   const withBusy = useCallback(async function withBusy<T>(
     action: string,
@@ -733,73 +738,8 @@ function App() {
   }, [client, withBusy])
 
   useEffect(() => {
-    if (isCallbackRoute) {
-      return
-    }
     void loadDashboard(false)
-  }, [isCallbackRoute, loadDashboard])
-
-  useEffect(() => {
-    if (!isCallbackRoute) {
-      return
-    }
-
-    const searchParams = new URLSearchParams(window.location.search)
-    const state = searchParams.get("state")?.trim() ?? ""
-
-    if (state === "") {
-      setCallbackStatus({
-        status: "error",
-        message: "Missing OAuth state in callback URL.",
-      })
-      return
-    }
-
-    const callbackRequest: OAuthSessionCallbackRequest = {
-      provider: OAUTH_PROVIDER,
-      state,
-      redirect_url: window.location.href,
-    }
-
-    const code = searchParams.get("code")?.trim()
-    const error = searchParams.get("error")?.trim()
-    const errorDescription = searchParams.get("error_description")?.trim()
-
-    if (code) {
-      callbackRequest.code = code
-    }
-    if (error) {
-      callbackRequest.error = error
-    }
-    if (errorDescription) {
-      callbackRequest.error_description = errorDescription
-    }
-
-    setCallbackStatus({
-      status: "submitting",
-      message: "Finishing OAuth sign-in...",
-    })
-
-    void client
-      .postJson<StatusOk & { auth_file?: string }>(
-        `/oauth-sessions/${encodeURIComponent(state)}/callback`,
-        callbackRequest,
-      )
-      .then((response) => {
-        setCallbackStatus({
-          status: "success",
-          message: response.auth_file
-            ? `Authentication linked to ${response.auth_file}. You can close this window.`
-            : "Authentication linked. You can close this window.",
-        })
-      })
-      .catch((error: unknown) => {
-        setCallbackStatus({
-          status: "error",
-          message: getErrorMessage(error),
-        })
-      })
-  }, [client, isCallbackRoute])
+  }, [loadDashboard])
 
   const updateActiveSectionFromScroll = useCallback(() => {
     const anchorOffset = 140
@@ -966,12 +906,13 @@ function App() {
       return undefined
     }
 
-    const timer = window.setTimeout(() => {
-      void refreshOAuthStatus(oauthSession.state!)
+    const state = oauthSession.state
+    const timer = window.setInterval(() => {
+      void refreshOAuthStatus(state)
     }, 2000)
 
     return () => {
-      window.clearTimeout(timer)
+      window.clearInterval(timer)
     }
   }, [oauthSession.state, oauthSession.status, refreshOAuthStatus])
 
@@ -990,6 +931,7 @@ function App() {
   }
 
   async function startOAuth() {
+    setOAuthCallbackUrlDraft("")
     setOAuthSession({
       state: null,
       status: "launching",
@@ -999,7 +941,6 @@ function App() {
     await withBusy("oauth-start", async () => {
       const request: OAuthSessionCreateRequest = {
         provider: OAUTH_PROVIDER,
-        callback_origin: window.location.origin,
       }
       const res = await client.postJson<OAuthSessionCreateResponse>(
         "/oauth-sessions",
@@ -1019,10 +960,35 @@ function App() {
       setOAuthSession({
         state: res.state,
         status: "pending",
-        message: "Opening browser sign-in...",
+        message: `Waiting for browser confirmation from ${backendOrigin}`,
       })
       await refreshOAuthStatus(res.state)
     }, "OAuth flow opened in new tab").catch(() => undefined)
+  }
+
+  async function submitOAuthCallbackUrl() {
+    if (oauthSession.status !== "pending" || !oauthSession.state) {
+      return
+    }
+
+    const redirectUrl = oauthCallbackUrlDraft.trim()
+    if (redirectUrl === "") {
+      return
+    }
+
+    const state = oauthSession.state
+
+    await withBusy(`oauth-callback:${state}`, async () => {
+      const request: OAuthSessionCallbackRequest = {
+        redirect_url: redirectUrl,
+      }
+
+      await client.postJson<StatusOk>(
+        `/oauth-sessions/${encodeURIComponent(state)}/callback`,
+        request,
+      )
+      await refreshOAuthStatus(state)
+    }).catch(() => undefined)
   }
 
   async function saveAuthFileDetails(file: AuthFile) {
@@ -1120,63 +1086,17 @@ function App() {
 
   const probeCapableAuthFiles = authFiles.filter((file) => getAuthFileUsageRefreshPath(file))
 
-  if (isCallbackRoute) {
-    return (
-      <div className="min-h-screen bg-muted/30 text-foreground font-sans selection:bg-primary/15">
-        <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/90 backdrop-blur-xl">
-          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-                <LayoutDashboard size={22} />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold tracking-tight text-foreground">Cockpit</h1>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">Frontend-owned OAuth callback</span>
-                  {callbackStatus.status !== "idle" ? (
-                    <StatusPill
-                      label={callbackStatus.status}
-                      tone={
-                        callbackStatus.status === "success"
-                          ? "success"
-                          : callbackStatus.status === "error"
-                            ? "destructive"
-                            : "warning"
-                      }
-                    />
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-          <SectionCard
-            id="oauth-callback"
-            title="Codex Callback"
-            description="Forwarding the OAuth redirect back into the management session."
-          >
-            <div className="rounded-2xl border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
-              {callbackStatus.message || "Waiting for callback data..."}
-            </div>
-          </SectionCard>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-muted/30 text-foreground font-sans selection:bg-primary/15">
       <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex min-h-16 max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
           <div className="flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
               <LayoutDashboard size={22} />
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-foreground">Cockpit</h1>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-medium text-muted-foreground">Management Console</span>
                 <StatusPill
                   label={connectionState}
@@ -1187,9 +1107,13 @@ function App() {
                         ? "destructive"
                         : connectionState === "loading"
                           ? "warning"
-                          : "default"
+                      : "default"
                   }
                 />
+                <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                  <ExternalLink size={12} />
+                  <span className="truncate">{backendOrigin}</span>
+                </span>
               </div>
             </div>
           </div>
@@ -1422,7 +1346,7 @@ function App() {
                       variant="outline"
                       className="h-9"
                       onClick={() => void startOAuth()}
-                      disabled={busyAction !== null}
+                      disabled={busyAction !== null || connectionState !== "ready"}
                     >
                       <ShieldCheck size={14} className="mr-2 text-primary" />
                       Start OAuth
@@ -1454,11 +1378,63 @@ function App() {
                           />
                         ) : null}
                       </div>
-                      {oauthSession.status !== "idle" ? (
-                        <div className="rounded-xl border border-border/70 bg-background/80 p-3 text-sm text-muted-foreground">
-                          {oauthSession.message}
-                        </div>
-                      ) : null}
+                      <div className="space-y-3">
+                        {oauthSession.status !== "idle" ? (
+                          <div className="rounded-xl border border-border/70 bg-background/80 p-3 text-sm text-muted-foreground">
+                            {oauthSession.message}
+                          </div>
+                        ) : null}
+
+                        {oauthSession.status === "pending" && oauthSession.state ? (
+                          <form
+                            className="rounded-xl border border-dashed border-border bg-muted/10 p-3"
+                            onSubmit={(event) => {
+                              event.preventDefault()
+                              void submitOAuthCallbackUrl()
+                            }}
+                          >
+                            <div className="space-y-1">
+                              <label
+                                htmlFor="oauth-callback-url"
+                                className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground"
+                              >
+                                Paste callback URL
+                              </label>
+                              <p className="text-xs leading-relaxed text-muted-foreground">
+                                If the browser does not return here automatically, paste the final callback URL to finish this OAuth session.
+                              </p>
+                            </div>
+
+                            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+                              <Input
+                                id="oauth-callback-url"
+                                aria-label="Pasted OAuth callback URL"
+                                value={oauthCallbackUrlDraft}
+                                onChange={(event) => setOAuthCallbackUrlDraft(event.target.value)}
+                                className="bg-background"
+                                placeholder="https://.../callback?state=..."
+                                spellCheck={false}
+                              />
+                              <Button
+                                type="submit"
+                                size="sm"
+                                variant="outline"
+                                className="h-8"
+                                disabled={
+                                  busyAction !== null ||
+                                  connectionState !== "ready" ||
+                                  oauthCallbackUrlDraft.trim() === ""
+                                }
+                              >
+                                {busyAction === `oauth-callback:${oauthSession.state}` ? (
+                                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                ) : null}
+                                Submit callback
+                              </Button>
+                            </div>
+                          </form>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5">
@@ -1510,11 +1486,14 @@ function App() {
 
             <footer className="border-t border-border/70 pt-10 pb-20">
               <div className="flex flex-col items-center justify-between gap-4 text-xs text-muted-foreground md:flex-row">
-                <p>© 2026 Cockpit Management. Authless same-origin mode.</p>
+                <p>© 2026 Cockpit Management. Backend selection stays client-side.</p>
                 <div className="flex items-center gap-4">
                   <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-muted-foreground">
                     <ExternalLink size={12} />
                     /v0/management
+                  </span>
+                  <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-muted-foreground">
+                    <span className="truncate">{backendOrigin}</span>
                   </span>
                   <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-muted-foreground">
                     Auth file models available

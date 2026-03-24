@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import App from "@/App"
 
 const fetchMock = vi.fn<typeof fetch>()
+const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8080"
+const SECONDARY_BACKEND_ORIGIN = "https://backend.example:9443"
 
 class MockIntersectionObserver {
   static instances: MockIntersectionObserver[] = []
@@ -49,10 +51,16 @@ function getRequestedUrls() {
   )
 }
 
+function managementUrl(path: string, origin = DEFAULT_BACKEND_ORIGIN) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`
+  return new URL(`/v0/management${normalizedPath}`, origin).toString()
+}
+
 function getMatchingRequests(url: string, method?: string) {
   return fetchMock.mock.calls.filter(([input, init]) => {
     const requestUrl = typeof input === "string" ? input : "url" in input ? input.url : input.toString()
-    return requestUrl === url && (method ? init?.method === method : true)
+    const requestMethod = init?.method ?? "GET"
+    return requestUrl === url && (method ? requestMethod === method : true)
   })
 }
 
@@ -70,6 +78,29 @@ function findButton(container: ParentNode, label: string): HTMLButtonElement {
   }
 
   return button
+}
+
+function findInput(container: ParentNode, label: string): HTMLInputElement {
+  const input = Array.from(container.querySelectorAll("input")).find((candidate) =>
+    candidate.getAttribute("aria-label")?.includes(label),
+  )
+
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error(`Unable to find input containing label: ${label}`)
+  }
+
+  return input
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+
+  if (!valueSetter) {
+    throw new Error("Missing HTMLInputElement value setter")
+  }
+
+  valueSetter.call(input, value)
+  input.dispatchEvent(new Event("input", { bubbles: true }))
 }
 
 function findAuthFileRow(container: HTMLElement, name: string): HTMLElement {
@@ -139,6 +170,13 @@ function expectNoLegacyRequests() {
   expect(requestedUrls.some((url) => url.includes("/auth-files/fields"))).toBe(false)
 }
 
+async function renderApp(root: Root, origin = DEFAULT_BACKEND_ORIGIN) {
+  await act(async () => {
+    root.render(<App key={origin} backendOrigin={origin} />)
+    await flushEffects()
+  })
+}
+
 describe("App", () => {
   let container: HTMLDivElement
   let root: Root
@@ -204,8 +242,9 @@ describe("App", () => {
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : "url" in input ? input.url : input.toString()
       const method = init?.method ?? "GET"
+      const pathname = new URL(url).pathname
 
-      switch (`${method} ${url}`) {
+      switch (`${method} ${pathname}`) {
         case "GET /v0/management/runtime-settings":
           return jsonResponse({
             "ws-auth": false,
@@ -331,6 +370,8 @@ describe("App", () => {
             url: "https://auth.example/codex/start",
             state: "oauth-state-1",
           })
+        case "POST /v0/management/oauth-sessions/oauth-state-1/callback":
+          return jsonResponse({ status: "ok" })
         case "GET /v0/management/oauth-sessions/oauth-state-1": {
           const response = oauthSessionStatuses.shift() ?? {
             status: "complete",
@@ -340,11 +381,6 @@ describe("App", () => {
           }
           return jsonResponse(response)
         }
-        case "POST /v0/management/oauth-sessions/oauth-state-1/callback":
-          return jsonResponse({
-            status: "ok",
-            auth_file: "callback-codex.json",
-          })
         default:
           return new Response(`Unexpected request: ${method} ${url}`, { status: 404 })
       }
@@ -366,16 +402,13 @@ describe("App", () => {
   })
 
   it("loads the redesigned management surface without rendering Codex Keys or calling legacy endpoints", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
+    await renderApp(root)
 
     const requestedUrls = getRequestedUrls()
 
-    expect(requestedUrls).toContain("/v0/management/runtime-settings")
-    expect(requestedUrls).toContain("/v0/management/api-keys")
-    expect(requestedUrls).toContain("/v0/management/auth-files")
+    expect(requestedUrls).toContain(managementUrl("/runtime-settings"))
+    expect(requestedUrls).toContain(managementUrl("/api-keys"))
+    expect(requestedUrls).toContain(managementUrl("/auth-files"))
     expect(container.querySelector("#codex-keys")).toBeNull()
     expect(container.textContent).toContain("API Keys")
     expect(container.textContent).toContain("Runtime Settings")
@@ -386,10 +419,7 @@ describe("App", () => {
   })
 
   it("saves api keys and runtime settings through the redesigned aggregate endpoints", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
+    await renderApp(root)
 
     await act(async () => {
       findButton(container, "Save Keys").click()
@@ -401,10 +431,10 @@ describe("App", () => {
       await flushEffects()
     })
 
-    expect(getJsonRequestBodies("/v0/management/api-keys", "PUT")).toContainEqual({
+    expect(getJsonRequestBodies(managementUrl("/api-keys"), "PUT")).toContainEqual({
       items: ["sk-primary", "sk-backup"],
     })
-    expect(getJsonRequestBodies("/v0/management/runtime-settings", "PUT")).toContainEqual({
+    expect(getJsonRequestBodies(managementUrl("/runtime-settings"), "PUT")).toContainEqual({
       "ws-auth": false,
       "request-retry": 3,
       "max-retry-interval": 30,
@@ -415,10 +445,7 @@ describe("App", () => {
   })
 
   it("uses path-based auth-file actions for usage refresh, download, and patch mutations", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
+    await renderApp(root)
 
     const primaryRow = findAuthFileRow(container, "primary-codex.json")
     const manualRow = findAuthFileRow(container, "manual-codex.json")
@@ -449,9 +476,9 @@ describe("App", () => {
       await flushEffects()
     })
 
-    expect(getRequestedUrls()).toContain("/v0/management/auth-files/primary-codex.json/usage")
-    expect(getRequestedUrls()).toContain("/v0/management/auth-files/primary-codex.json/content")
-    expect(getJsonRequestBodies("/v0/management/auth-files/primary-codex.json", "PATCH")).toEqual([
+    expect(getRequestedUrls()).toContain(managementUrl("/auth-files/primary-codex.json/usage"))
+    expect(getRequestedUrls()).toContain(managementUrl("/auth-files/primary-codex.json/content"))
+    expect(getJsonRequestBodies(managementUrl("/auth-files/primary-codex.json"), "PATCH")).toEqual([
       { priority: 0 },
       { disabled: true },
     ])
@@ -462,10 +489,7 @@ describe("App", () => {
   })
 
   it("refreshes usage only for auth files with usage_available and merges the returned summary", async () => {
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
+    await renderApp(root)
 
     await act(async () => {
       findButton(container, "Query all usage").click()
@@ -476,8 +500,8 @@ describe("App", () => {
     const backupRow = findAuthFileRow(container, "backup-codex.json")
 
     expect(usageRefreshUrls).toEqual([
-      "/v0/management/auth-files/primary-codex.json/usage",
-      "/v0/management/auth-files/backup-codex.json/usage",
+      managementUrl("/auth-files/primary-codex.json/usage"),
+      managementUrl("/auth-files/backup-codex.json/usage"),
     ])
     expect(backupRow.textContent).toContain("Plan")
     expect(backupRow.textContent).toContain("team")
@@ -490,7 +514,7 @@ describe("App", () => {
     expectNoLegacyRequests()
   })
 
-  it("starts oauth with frontend callback origin and polls the oauth session resource", async () => {
+  it("starts oauth on the selected backend and polls the oauth session resource", async () => {
     vi.useFakeTimers()
     oauthSessionStatuses = [
       {
@@ -506,23 +530,20 @@ describe("App", () => {
       },
     ]
 
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
+    await renderApp(root)
 
     await act(async () => {
       findButton(container, "Start OAuth").click()
       await flushEffects()
     })
 
-    expect(getJsonRequestBodies("/v0/management/oauth-sessions", "POST")).toContainEqual({
+    expect(getJsonRequestBodies(managementUrl("/oauth-sessions"), "POST")).toContainEqual({
       provider: "codex",
-      callback_origin: window.location.origin,
     })
-    expect(getRequestedUrls()).toContain("/v0/management/oauth-sessions/oauth-state-1")
+    expect(getRequestedUrls()).toContain(managementUrl("/oauth-sessions/oauth-state-1"))
     expect(openMock).toHaveBeenCalledWith("https://auth.example/codex/start", "_blank")
     expect(container.textContent).toContain("Waiting for browser confirmation")
+    expect(findInput(container, "Pasted OAuth callback URL").value).toBe("")
 
     await act(async () => {
       vi.advanceTimersByTime(2000)
@@ -530,17 +551,150 @@ describe("App", () => {
       await flushEffects()
     })
 
+    expect(getMatchingRequests(managementUrl("/oauth-sessions/oauth-state-1/callback"), "POST")).toHaveLength(0)
     expect(container.textContent).toContain("OAuth session connected: callback-codex.json")
+    expect(container.querySelector('input[aria-label="Pasted OAuth callback URL"]')).toBeNull()
     expectNoLegacyRequests()
+  })
+
+  it("submits a pasted oauth callback url and resolves success through the shared status refresh", async () => {
+    oauthSessionStatuses = [
+      {
+        status: "pending",
+        provider: "codex",
+        state: "oauth-state-1",
+      },
+      {
+        status: "complete",
+        provider: "codex",
+        state: "oauth-state-1",
+        auth_file: "manual-callback-codex.json",
+      },
+    ]
+
+    await renderApp(root)
+
+    await act(async () => {
+      findButton(container, "Start OAuth").click()
+      await flushEffects()
+    })
+
+    const pastedCallbackUrl = "https://frontend.example/callback?state=oauth-state-1&code=manual-code"
+
+    await act(async () => {
+      setInputValue(findInput(container, "Pasted OAuth callback URL"), pastedCallbackUrl)
+      await flushEffects()
+    })
+
+    await act(async () => {
+      findButton(container, "Submit callback").click()
+      await flushEffects()
+    })
+
+    expect(getJsonRequestBodies(managementUrl("/oauth-sessions/oauth-state-1/callback"), "POST")).toContainEqual({
+      redirect_url: pastedCallbackUrl,
+    })
+    expect(getMatchingRequests(managementUrl("/oauth-sessions/oauth-state-1"), "GET")).toHaveLength(2)
+    expect(container.textContent).toContain("OAuth session connected: manual-callback-codex.json")
+    expect(container.querySelector('input[aria-label="Pasted OAuth callback URL"]')).toBeNull()
+    expectNoLegacyRequests()
+  })
+
+  it("submits a pasted oauth error callback url and surfaces the shared status error", async () => {
+    oauthSessionStatuses = [
+      {
+        status: "pending",
+        provider: "codex",
+        state: "oauth-state-1",
+      },
+      {
+        status: "error",
+        provider: "codex",
+        state: "oauth-state-1",
+        error: "OAuth callback rejected by provider",
+      },
+    ]
+
+    await renderApp(root)
+
+    await act(async () => {
+      findButton(container, "Start OAuth").click()
+      await flushEffects()
+    })
+
+    const pastedErrorCallbackUrl = "https://frontend.example/callback?state=oauth-state-1&error=access_denied"
+
+    await act(async () => {
+      setInputValue(findInput(container, "Pasted OAuth callback URL"), pastedErrorCallbackUrl)
+      await flushEffects()
+    })
+
+    await act(async () => {
+      findButton(container, "Submit callback").click()
+      await flushEffects()
+    })
+
+    expect(getJsonRequestBodies(managementUrl("/oauth-sessions/oauth-state-1/callback"), "POST")).toContainEqual({
+      redirect_url: pastedErrorCallbackUrl,
+    })
+    expect(getMatchingRequests(managementUrl("/oauth-sessions/oauth-state-1"), "GET")).toHaveLength(2)
+    expect(container.textContent).toContain("OAuth callback rejected by provider")
+    expect(container.querySelector('input[aria-label="Pasted OAuth callback URL"]')).toBeNull()
+    expectNoLegacyRequests()
+  })
+
+  it("keeps polling while the oauth session remains pending on the selected backend", async () => {
+    vi.useFakeTimers()
+    oauthSessionStatuses = [
+      {
+        status: "pending",
+        provider: "codex",
+        state: "oauth-state-1",
+      },
+      {
+        status: "pending",
+        provider: "codex",
+        state: "oauth-state-1",
+      },
+      {
+        status: "complete",
+        provider: "codex",
+        state: "oauth-state-1",
+        auth_file: "callback-codex.json",
+      },
+    ]
+
+    await renderApp(root)
+
+    await act(async () => {
+      findButton(container, "Start OAuth").click()
+      await flushEffects()
+    })
+
+    expect(getMatchingRequests(managementUrl("/oauth-sessions/oauth-state-1"), "GET")).toHaveLength(1)
+    expect(container.textContent).toContain("Waiting for browser confirmation")
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000)
+      await flushEffects()
+    })
+
+    expect(getMatchingRequests(managementUrl("/oauth-sessions/oauth-state-1"), "GET")).toHaveLength(2)
+    expect(container.textContent).toContain("Waiting for browser confirmation")
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000)
+      await flushEffects()
+    })
+
+    expect(getMatchingRequests(managementUrl("/oauth-sessions/oauth-state-1"), "GET")).toHaveLength(3)
+    expect(container.textContent).toContain("OAuth session connected: callback-codex.json")
   })
 
   it("shows an error when the browser blocks the oauth popup", async () => {
     openMock.mockReturnValue(null)
 
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
+    await renderApp(root)
 
     await act(async () => {
       findButton(container, "Start OAuth").click()
@@ -552,36 +706,61 @@ describe("App", () => {
     expectNoLegacyRequests()
   })
 
-  it("owns /codex/callback in the frontend shell and forwards callback data to the oauth session callback endpoint", async () => {
-    window.history.pushState({}, "", "/codex/callback?state=oauth-state-1&code=auth-code")
+  it("treats /auth/callback as a normal app route instead of a frontend-owned oauth completion page", async () => {
+    window.history.pushState({}, "", "/auth/callback?state=oauth-state-1&code=auth-code")
 
-    await act(async () => {
-      root.render(<App />)
-      await flushEffects()
-    })
+    await renderApp(root)
 
-    expect(getRequestedUrls()).toEqual([
-      "/v0/management/oauth-sessions/oauth-state-1/callback",
-    ])
-    expect(getJsonRequestBodies("/v0/management/oauth-sessions/oauth-state-1/callback", "POST")).toEqual([
-      {
-        provider: "codex",
-        state: "oauth-state-1",
-        redirect_url: window.location.href,
-        code: "auth-code",
-      },
-    ])
-    expect(container.textContent).toContain("Frontend-owned OAuth callback")
-    expect(container.textContent).toContain("Authentication linked to callback-codex.json")
-    expect(container.textContent).not.toContain("API Keys")
+    expect(getRequestedUrls()).toContain(managementUrl("/runtime-settings"))
+    expect(getRequestedUrls()).toContain(managementUrl("/api-keys"))
+    expect(getRequestedUrls()).toContain(managementUrl("/auth-files"))
+    expect(getRequestedUrls().some((url) => url.endsWith("/callback"))).toBe(false)
+    expect(container.textContent).toContain("API Keys")
+    expect(container.textContent).not.toContain("Frontend-owned OAuth callback")
     expectNoLegacyRequests()
   })
 
-  it("updates the configuration selector from scroll position with api keys as the first section", async () => {
+  it("reloads against a new backend origin and stops stale oauth polling when the selector switches backends", async () => {
+    vi.useFakeTimers()
+    oauthSessionStatuses = [
+      {
+        status: "pending",
+        provider: "codex",
+        state: "oauth-state-1",
+      },
+      {
+        status: "pending",
+        provider: "codex",
+        state: "oauth-state-1",
+      },
+    ]
+
+    await renderApp(root)
+
     await act(async () => {
-      root.render(<App />)
+      findButton(container, "Start OAuth").click()
       await flushEffects()
     })
+
+    expect(getMatchingRequests(managementUrl("/oauth-sessions/oauth-state-1"), "GET")).toHaveLength(1)
+
+    await renderApp(root, SECONDARY_BACKEND_ORIGIN)
+
+    expect(getRequestedUrls()).toContain(managementUrl("/runtime-settings", SECONDARY_BACKEND_ORIGIN))
+    expect(getRequestedUrls()).toContain(managementUrl("/api-keys", SECONDARY_BACKEND_ORIGIN))
+    expect(getRequestedUrls()).toContain(managementUrl("/auth-files", SECONDARY_BACKEND_ORIGIN))
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000)
+      await flushEffects()
+    })
+
+    expect(getMatchingRequests(managementUrl("/oauth-sessions/oauth-state-1"), "GET")).toHaveLength(1)
+    expect(getMatchingRequests(managementUrl("/oauth-sessions/oauth-state-1", SECONDARY_BACKEND_ORIGIN), "GET")).toHaveLength(0)
+  })
+
+  it("updates the configuration selector from scroll position with api keys as the first section", async () => {
+    await renderApp(root)
 
     const apiKeysButton = findButton(container, "API Keys")
     const runtimeButton = findButton(container, "Runtime Settings")

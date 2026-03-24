@@ -65,7 +65,6 @@ export type OAuthProvider = "codex"
 
 export interface OAuthSessionCreateRequest {
   provider: OAuthProvider
-  callback_origin: string
 }
 
 export interface OAuthSessionCreateResponse {
@@ -74,19 +73,14 @@ export interface OAuthSessionCreateResponse {
   state: string
 }
 
+export interface OAuthSessionCallbackRequest {
+  redirect_url: string
+}
+
 export interface OAuthSessionStatusResponse {
   status: "pending" | "complete" | "error"
   provider: OAuthProvider
   state: string
   error?: string
   auth_file?: string
-}
-
-export interface OAuthSessionCallbackRequest {
-  provider: OAuthProvider
-  state?: string
-  redirect_url?: string
-  code?: string
-  error?: string
-  error_description?: string
 }

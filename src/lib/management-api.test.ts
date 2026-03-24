@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createManagementClient } from "@/lib/management-api"
 
 const fetchMock = vi.fn<typeof fetch>()
+const BACKEND_ORIGIN = "https://backend.example:9443"
 
 describe("createManagementClient", () => {
   afterEach(() => {
@@ -10,7 +11,7 @@ describe("createManagementClient", () => {
     vi.unstubAllGlobals()
   })
 
-  it("uses a same-origin relative management path", async () => {
+  it("uses an absolute management URL for the selected backend origin", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ status: "ok" }), {
         status: 200,
@@ -19,10 +20,10 @@ describe("createManagementClient", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await createManagementClient().getJson("/status")
+    await createManagementClient(BACKEND_ORIGIN).getJson("/status")
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/v0/management/status",
+      `${BACKEND_ORIGIN}/v0/management/status`,
       expect.objectContaining({
         headers: expect.any(Headers),
       }),
@@ -38,7 +39,7 @@ describe("createManagementClient", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await createManagementClient().getJson("/status")
+    await createManagementClient(BACKEND_ORIGIN).getJson("/status")
 
     const callArgs = fetchMock.mock.calls[0]
     expect(callArgs).toBeDefined()
@@ -56,7 +57,7 @@ describe("createManagementClient", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await createManagementClient().postJson("/auth-files/example.json/usage")
+    await createManagementClient(BACKEND_ORIGIN).postJson("/auth-files/example.json/usage")
 
     const callArgs = fetchMock.mock.calls[0]
     expect(callArgs).toBeDefined()
@@ -67,5 +68,11 @@ describe("createManagementClient", () => {
     expect(requestInit.method).toBe("POST")
     expect(headers.get("Content-Type")).toBeNull()
     expect(requestInit.body).toBeUndefined()
+  })
+
+  it("requires an explicit backend origin instead of falling back to same-origin", () => {
+    expect(() => createManagementClient("")).toThrow(
+      "Enter a backend origin before continuing.",
+    )
   })
 })
