@@ -39,21 +39,26 @@ async function extractErrorDetails(response: Response): Promise<string> {
 }
 
 function buildHeaders(
+  managementPassword: string,
   extraHeaders?: HeadersInit,
 ): Headers {
   const headers = new Headers(extraHeaders)
+  if (managementPassword !== "" && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${managementPassword}`)
+  }
   return headers
 }
 
 async function request<T>(
   backendOrigin: string,
+  managementPassword: string,
   path: string,
   init?: RequestInit,
   parser?: (response: Response) => Promise<T>,
 ): Promise<T> {
   const response = await fetch(buildManagementUrl(backendOrigin, path), {
     ...init,
-    headers: buildHeaders(init?.headers),
+    headers: buildHeaders(managementPassword, init?.headers),
   })
 
   if (!response.ok) {
@@ -72,24 +77,36 @@ async function request<T>(
   return (await response.json()) as T
 }
 
-export function createManagementClient(backendOrigin: string) {
+export function createManagementClient(backendOrigin: string, managementPassword = "") {
   const resolvedBackendOrigin = normalizeBackendOrigin(backendOrigin)
 
   return {
     getJson<T>(path: string) {
-      return request<T>(resolvedBackendOrigin, path)
+      return request<T>(resolvedBackendOrigin, managementPassword, path)
     },
 
     getText(path: string) {
-      return request<string>(resolvedBackendOrigin, path, undefined, (response) => response.text())
+      return request<string>(
+        resolvedBackendOrigin,
+        managementPassword,
+        path,
+        undefined,
+        (response) => response.text(),
+      )
     },
 
     getBlob(path: string) {
-      return request<Blob>(resolvedBackendOrigin, path, undefined, (response) => response.blob())
+      return request<Blob>(
+        resolvedBackendOrigin,
+        managementPassword,
+        path,
+        undefined,
+        (response) => response.blob(),
+      )
     },
 
     postJson<T>(path: string, body?: unknown) {
-      return request<T>(resolvedBackendOrigin, path, {
+      return request<T>(resolvedBackendOrigin, managementPassword, path, {
         method: "POST",
         ...(body === undefined
           ? {}
@@ -103,7 +120,7 @@ export function createManagementClient(backendOrigin: string) {
     },
 
     putJson<T>(path: string, body: unknown) {
-      return request<T>(resolvedBackendOrigin, path, {
+      return request<T>(resolvedBackendOrigin, managementPassword, path, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -113,7 +130,7 @@ export function createManagementClient(backendOrigin: string) {
     },
 
     patchJson<T>(path: string, body: unknown) {
-      return request<T>(resolvedBackendOrigin, path, {
+      return request<T>(resolvedBackendOrigin, managementPassword, path, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -123,7 +140,7 @@ export function createManagementClient(backendOrigin: string) {
     },
 
     delete<T>(path: string) {
-      return request<T>(resolvedBackendOrigin, path, {
+      return request<T>(resolvedBackendOrigin, managementPassword, path, {
         method: "DELETE",
       })
     },

@@ -31,7 +31,7 @@ describe("createManagementClient", () => {
     )
   })
 
-  it("does not send an Authorization header", async () => {
+  it("does not send an Authorization header without a management password", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ status: "ok" }), {
         status: 200,
@@ -49,6 +49,24 @@ describe("createManagementClient", () => {
     expect(headers.get("Authorization")).toBeNull()
   })
 
+  it("sends the management password as a Bearer header", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await createManagementClient(BACKEND_ORIGIN, "open-sesame").getJson("/status")
+
+    const callArgs = fetchMock.mock.calls[0]
+    expect(callArgs).toBeDefined()
+    const requestInit = callArgs![1] as RequestInit
+    const headers = requestInit.headers as Headers
+    expect(headers.get("Authorization")).toBe("Bearer open-sesame")
+  })
+
   it("allows empty POST requests for path-based management actions", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ status: "ok" }), {
@@ -58,7 +76,7 @@ describe("createManagementClient", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await createManagementClient(BACKEND_ORIGIN).postJson("/auth-files/example.json/usage")
+    await createManagementClient(BACKEND_ORIGIN, "session-password").postJson("/auth-files/example.json/usage")
 
     const callArgs = fetchMock.mock.calls[0]
     expect(callArgs).toBeDefined()
@@ -67,6 +85,7 @@ describe("createManagementClient", () => {
     const headers = requestInit.headers as Headers
 
     expect(requestInit.method).toBe("POST")
+    expect(headers.get("Authorization")).toBe("Bearer session-password")
     expect(headers.get("Content-Type")).toBeNull()
     expect(requestInit.body).toBeUndefined()
   })
