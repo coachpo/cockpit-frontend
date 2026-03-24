@@ -14,7 +14,6 @@ import {
   ShieldCheck,
 } from "lucide-react"
 
-import { SectionCard } from "@/components/section-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -130,7 +129,7 @@ function StatusPill({
           : "border-border bg-muted text-muted-foreground"
 
   return (
-    <Badge variant="outline" className={className}>
+    <Badge variant="outline" className={`rounded-full px-2 text-[10px] uppercase tracking-[0.14em] ${className}`}>
       {label}
     </Badge>
   )
@@ -146,14 +145,82 @@ function SettingField({
   children: ReactNode
 }) {
   return (
-    <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-4 shadow-sm shadow-black/0 transition-colors hover:bg-muted/30">
-      <div className="space-y-1">
+    <div className="grid gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4 sm:px-4">
+      <div className="min-w-0 space-y-1">
         <div className="text-sm font-medium text-foreground">{label}</div>
-        <div className="text-xs leading-relaxed text-muted-foreground">{description}</div>
+        <div className="text-[11px] leading-5 text-muted-foreground">{description}</div>
       </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  )
+}
+
+function SectionFrame({
+  id,
+  icon,
+  title,
+  subtitle,
+  actions,
+  children,
+}: {
+  id: string
+  icon: ReactNode
+  title: string
+  subtitle: string
+  actions?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div id={id} className="space-y-4">
+      <div className="flex flex-col gap-3 border-b border-border/60 pb-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-muted/15 text-muted-foreground">
+              {icon}
+            </div>
+            <h2 className="text-base font-medium tracking-tight text-foreground">{title}</h2>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
+        </div>
+
+        {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
+      </div>
+
       {children}
     </div>
   )
+}
+
+function StripMetric({
+  label,
+  value,
+  detail,
+}: {
+  label: string
+  value: string | number
+  detail: string
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
+      <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 text-lg font-medium text-foreground">{value}</div>
+      <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{detail}</div>
+    </div>
+  )
+}
+
+function getFeedbackToneClasses(tone: "success" | "error" | "info") {
+  if (tone === "success") {
+    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
+  }
+
+  if (tone === "error") {
+    return "border-destructive/20 bg-destructive/10 text-destructive"
+  }
+
+  return "border-primary/20 bg-primary/10 text-primary"
 }
 
 function createAuthFileDraft(file: AuthFile) {
@@ -400,18 +467,46 @@ function getAuthFileUsageMetaEntries(usage?: Record<string, unknown>) {
   return entries.slice(0, 8)
 }
 
+function getAuthFileMetadataEntries(file: AuthFile) {
+  const entries: Array<{ label: string; value: string }> = []
+
+  if (typeof file.email === "string" && file.email.trim() !== "") {
+    entries.push({ label: "Email", value: file.email.trim() })
+  }
+
+  if (typeof file.label === "string" && file.label.trim() !== "") {
+    entries.push({ label: "Label", value: file.label.trim() })
+  }
+
+  if (typeof file.provider === "string" && file.provider.trim() !== "") {
+    entries.push({ label: "Provider", value: file.provider.trim() })
+  }
+
+  if (typeof file.source === "string" && file.source.trim() !== "") {
+    entries.push({ label: "Source", value: file.source.trim() })
+  }
+
+  if (typeof file.priority === "number" && !Number.isNaN(file.priority)) {
+    entries.push({ label: "Priority", value: String(file.priority) })
+  }
+
+  if (typeof file.id === "string" && file.id.trim() !== "") {
+    entries.push({ label: "ID", value: file.id.trim() })
+  }
+
+  return entries
+}
+
 function AuthUsageBar({ window }: { window: AuthUsageWindowSummary }) {
   const toneClasses = getUsageToneClasses(window.tone)
 
   return (
     <div
       data-slot="auth-usage-bar"
-      className="rounded-lg border border-border/70 bg-background/80 px-3 py-2.5"
+      className="rounded-lg border border-border/60 bg-muted/10 px-2.5 py-2"
     >
-      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
-        <div className="text-[11px] font-medium text-foreground">
-          {window.label}
-        </div>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+        <div className="text-[11px] font-medium text-foreground">{window.label}</div>
         <div className="flex items-baseline gap-2 text-[11px] text-muted-foreground sm:justify-end">
           <span className={`text-xs font-semibold ${toneClasses.textClassName}`}>
             {window.percentage}%
@@ -420,7 +515,7 @@ function AuthUsageBar({ window }: { window: AuthUsageWindowSummary }) {
         </div>
       </div>
 
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted/70">
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/70">
         <div
           className={`h-full rounded-full transition-[width] ${toneClasses.barClassName}`}
           style={{ width: `${window.percentage}%` }}
@@ -439,18 +534,14 @@ function AuthFileUsageSummary({
 }) {
   const usageWindows = getUsageWindowSummaries(file)
   const usageEntries = getAuthFileUsageMetaEntries(file.usage)
+  const metadataEntries = getAuthFileMetadataEntries(file)
   const hasUsageData = usageWindows.length > 0 || usageEntries.length > 0
 
   return (
-    <div className="rounded-xl border border-border/70 bg-muted/10 p-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Usage summary
-          </div>
-          <div className="text-xs text-muted-foreground">
-            Compact access status and usage windows for this auth file.
-          </div>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+          Usage summary
         </div>
         {!canQueryUsage ? (
           <Badge variant="outline" className="text-[11px] text-muted-foreground">
@@ -459,47 +550,63 @@ function AuthFileUsageSummary({
         ) : null}
       </div>
 
-        {hasUsageData ? (
-          <div className="space-y-3">
-            {usageWindows.length ? (
-              <div className="rounded-xl border border-border/70 bg-background/80 px-3 py-3">
-                <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                  Usages
-                </div>
-                <div className="mt-3 space-y-2">
-                  {usageWindows.map((window) => (
-                    <AuthUsageBar key={window.label} window={window} />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-          {usageEntries.length ? (
-            <div className="flex flex-wrap gap-2">
-              {usageEntries.map((entry) => (
-                <div
-                  key={`${entry.label}:${entry.value}`}
-                  className="min-w-[118px] rounded-lg border border-border/70 bg-background/80 px-3 py-2"
-                >
-                  <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    {entry.label}
-                  </div>
-                  <div className="mt-1 text-sm font-medium text-foreground">{entry.value}</div>
-                </div>
-              ))}
-            </div>
-          ) : null}
+      {usageWindows.length ? (
+        <div className="space-y-2">
+          {usageWindows.map((window) => (
+            <AuthUsageBar key={window.label} window={window} />
+          ))}
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border/70 bg-muted/10 px-2.5 py-2 text-[11px] leading-5 text-muted-foreground">
           {canQueryUsage
             ? "Query usage to populate this auth file summary."
             : "This auth file does not expose usage refresh."}
         </div>
       )}
+
+      {metadataEntries.length || hasUsageData ? (
+        <div className="grid gap-3 border-t border-border/60 pt-3 xl:grid-cols-2">
+          {metadataEntries.length ? (
+            <div className="space-y-2">
+              <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                File details
+              </div>
+              <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+                {metadataEntries.map((entry) => (
+                  <div key={`${entry.label}:${entry.value}`} className="grid min-w-0 gap-1">
+                    <dt className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      {entry.label}
+                    </dt>
+                    <dd className="break-words text-[13px] font-medium text-foreground">{entry.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ) : null}
+
+          {usageEntries.length ? (
+            <div className={`space-y-2 ${metadataEntries.length ? "border-t border-border/60 pt-3 xl:border-t-0 xl:border-l xl:pl-4" : ""}`}>
+              <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                Usage details
+              </div>
+              <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+                {usageEntries.map((entry) => (
+                  <div key={`${entry.label}:${entry.value}`} className="grid min-w-0 gap-1">
+                    <dt className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      {entry.label}
+                    </dt>
+                    <dd className="break-words text-[13px] font-medium text-foreground">{entry.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
+
 function AuthFileCard({
   file,
   draft,
@@ -525,109 +632,118 @@ function AuthFileCard({
   const hasDraftPriority = draft.priority.trim() !== ""
 
   return (
-    <article className="space-y-3 rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5 transition-all hover:border-primary/20 hover:shadow-lg hover:shadow-primary/8">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-muted/30 text-primary">
-            <FileText size={16} />
-          </div>
-          <div className="min-w-0 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="truncate text-sm font-semibold text-foreground">{file.name}</h3>
-              <StatusPill
-                label={statusLabel}
-                tone={file.status === "error" ? "destructive" : file.disabled ? "warning" : "success"}
-              />
-              {file.provider ? (
-                <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                  {file.provider}
-                </Badge>
-              ) : null}
-              {file.source ? (
-                <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                  {file.source}
-                </Badge>
-              ) : null}
+    <article className="rounded-xl border border-border/70 bg-background/80 px-4 py-3 transition-colors hover:border-primary/20">
+      <div className="space-y-3.5">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/20 text-muted-foreground">
+              <FileText size={14} />
             </div>
+            <div className="min-w-0 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="truncate text-sm font-semibold text-foreground">{file.name}</h3>
+                <StatusPill
+                  label={statusLabel}
+                  tone={file.status === "error" ? "destructive" : file.disabled ? "warning" : "success"}
+                />
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="rounded-full border border-border/70 bg-muted/20 px-2.5 py-1">
-                {inlineIdentity}
-              </span>
-              {file.status_message ? (
-                <span className="rounded-full border border-border/70 bg-muted/20 px-2.5 py-1">
-                  {file.status_message}
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="rounded-full border border-border/60 bg-muted/10 px-2 py-1">
+                  {inlineIdentity}
                 </span>
-              ) : null}
-              {hasDraftPriority ? (
-                <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                  Priority {draft.priority.trim()}
-                </Badge>
-              ) : null}
+                {file.provider ? (
+                  <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                    {file.provider}
+                  </Badge>
+                ) : null}
+                {file.source ? (
+                  <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                    {file.source}
+                  </Badge>
+                ) : null}
+                {file.status_message ? (
+                  <span className="rounded-full border border-border/60 bg-muted/10 px-2 py-1">
+                    {file.status_message}
+                  </span>
+                ) : null}
+                {hasDraftPriority ? (
+                  <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                    Priority {draft.priority.trim()}
+                  </Badge>
+                ) : null}
+              </div>
             </div>
+          </div>
 
+          <div className="flex flex-wrap gap-2 xl:justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onQueryUsage(file)}
+              disabled={disabled || !usageRefreshPath}
+            >
+              <RefreshCw size={14} className="mr-2" />
+              Query usage
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => onDownload(file)} disabled={disabled}>
+              <Download size={14} className="mr-2" />
+              Download JSON
+            </Button>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 xl:justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onQueryUsage(file)}
-            disabled={disabled || !usageRefreshPath}
-          >
-            <RefreshCw size={14} className="mr-2" />
-            Query usage
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => onDownload(file)} disabled={disabled}>
-            <Download size={14} className="mr-2" />
-            Download JSON
-          </Button>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(250px,0.95fr)]">
+          <div className="min-w-0">
+            <AuthFileUsageSummary file={file} canQueryUsage={Boolean(usageRefreshPath)} />
+          </div>
+
+          <div className="space-y-3 border-t border-border/60 pt-3 lg:border-t-0 lg:border-l lg:pl-4 lg:pt-0">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  Edit details
+                </div>
+                <div className="text-[11px] leading-5 text-muted-foreground">
+                  Adjust routing priority for this file.
+                </div>
+              </div>
+              <Button size="sm" onClick={() => onSaveDetails(file)} disabled={disabled}>
+                <Save size={14} className="mr-2" />
+                Save details
+              </Button>
+            </div>
+
+            <div className="space-y-2.5">
+              <div className="space-y-2">
+                <label htmlFor={`auth-priority-${file.name}`} className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  Priority
+                </label>
+                <Input
+                  id={`auth-priority-${file.name}`}
+                  type="number"
+                  min={0}
+                  aria-label={`Priority for ${file.name}`}
+                  value={draft.priority}
+                  onChange={(event) => onDraftChange(file.name, "priority", event.target.value)}
+                  className="bg-background"
+                />
+              </div>
+              <p className="text-[11px] leading-5 text-muted-foreground">
+                Lower values are preferred first. Leave the field unchanged to keep the current backend ordering.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] leading-5 text-muted-foreground">
+            Take this file out of rotation without changing saved details.
+          </p>
           <Button variant="outline" size="sm" onClick={() => onToggleDisabled(file)} disabled={disabled}>
             <ShieldCheck size={14} className="mr-2" />
             {file.disabled ? "Enable auth file" : "Disable auth file"}
           </Button>
-        </div>
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-        <AuthFileUsageSummary file={file} canQueryUsage={Boolean(usageRefreshPath)} />
-
-        <div className="rounded-xl border border-border/70 bg-muted/10 p-3">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Edit details
-              </div>
-              <div className="text-xs text-muted-foreground">
-                Keep auth-file routing priority in sync without expanding the row.
-              </div>
-            </div>
-            <Button size="sm" onClick={() => onSaveDetails(file)} disabled={disabled}>
-              <Save size={14} className="mr-2" />
-              Save details
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            <div className="space-y-2">
-              <label htmlFor={`auth-priority-${file.name}`} className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                Priority
-              </label>
-              <Input
-                id={`auth-priority-${file.name}`}
-                type="number"
-                min={0}
-                aria-label={`Priority for ${file.name}`}
-                value={draft.priority}
-                onChange={(event) => onDraftChange(file.name, "priority", event.target.value)}
-                className="bg-background"
-              />
-            </div>
-            <div className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-              Lower values are preferred first. Leave the field unchanged to keep the current backend ordering.
-            </div>
-          </div>
         </div>
       </div>
     </article>
@@ -1087,422 +1203,423 @@ function App({ backendOrigin }: AppProps) {
   const probeCapableAuthFiles = authFiles.filter((file) => getAuthFileUsageRefreshPath(file))
 
   return (
-    <div className="min-h-screen bg-muted/30 text-foreground font-sans selection:bg-primary/15">
-      <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/90 backdrop-blur-xl">
-        <div className="mx-auto flex min-h-16 max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-          <div className="flex items-center gap-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-              <LayoutDashboard size={22} />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-foreground">Cockpit</h1>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-medium text-muted-foreground">Management Console</span>
-                <StatusPill
-                  label={connectionState}
-                  tone={
-                    connectionState === "ready"
-                      ? "success"
-                      : connectionState === "error"
-                        ? "destructive"
-                        : connectionState === "loading"
-                          ? "warning"
-                      : "default"
-                  }
-                />
-                <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground">
-                  <ExternalLink size={12} />
-                  <span className="truncate">{backendOrigin}</span>
-                </span>
+    <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/15">
+      <header className="sticky top-0 z-50 border-b border-border/70 bg-background/92 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-2.5 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-muted/20 text-foreground">
+                <LayoutDashboard size={16} />
               </div>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-3">
-            {feedback && (
-              <div className={`hidden animate-in fade-in slide-in-from-top-2 md:flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-medium ${
-                feedback.tone === "success"
-                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
-                  : feedback.tone === "error"
-                    ? "border-destructive/20 bg-destructive/10 text-destructive"
-                    : "border-primary/20 bg-primary/10 text-primary"
-              }`}>
-                {feedback.tone === "success" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
-                {feedback.text}
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 gap-y-1">
+                  <h1 className="text-sm font-semibold tracking-tight text-foreground">Cockpit</h1>
+                  <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                    Operations Console
+                  </span>
+                  <StatusPill
+                    label={connectionState}
+                    tone={
+                      connectionState === "ready"
+                        ? "success"
+                        : connectionState === "error"
+                          ? "destructive"
+                          : connectionState === "loading"
+                            ? "warning"
+                            : "default"
+                    }
+                  />
+                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/70 bg-muted/10 px-2.5 py-1 text-[11px] text-muted-foreground">
+                    <ExternalLink size={11} />
+                    <span className="truncate">{backendOrigin}</span>
+                  </span>
+                </div>
               </div>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 rounded-lg bg-background"
-              onClick={() => void loadDashboard(true)}
-              disabled={busyAction !== null}
-            >
-              {busyAction === "load-dashboard" ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Sync
-            </Button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              {feedback ? (
+                <div
+                  className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${getFeedbackToneClasses(feedback.tone)}`}
+                >
+                  {feedback.tone === "success" ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+                  <span className="truncate">{feedback.text}</span>
+                </div>
+              ) : null}
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-background/80"
+                onClick={() => void loadDashboard(true)}
+                disabled={busyAction !== null}
+              >
+                {busyAction === "load-dashboard" ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                )}
+                Sync
+              </Button>
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="grid gap-8 lg:grid-cols-[240px_1fr]">
-          <aside className="hidden lg:block">
-            <nav className="sticky top-24 space-y-1 rounded-2xl border border-border/70 bg-background/80 p-3 shadow-sm shadow-black/5">
-              <p className="mb-4 px-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Configuration
-              </p>
+      <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+        <div className="rounded-[1.5rem] border border-border/70 bg-muted/10">
+          <nav className="border-b border-border/60 px-4 py-2.5 sm:px-5 lg:px-6" aria-label="Sections">
+            <div className="flex gap-2 overflow-x-auto">
               {NAV_ITEMS.map((item) => (
                 <button
                   type="button"
                   key={item.id}
                   onClick={() => scrollToSection(item.id)}
                   aria-current={activeSection === item.id ? "page" : undefined}
-                  className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] transition-colors ${
                     activeSection === item.id
-                      ? "bg-primary/10 text-primary shadow-sm shadow-primary/10"
-                      : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-border/70 bg-background/80 text-muted-foreground hover:border-foreground/20 hover:text-foreground"
                   }`}
                 >
-                  <item.icon
-                    size={18}
-                    className={`transition-colors ${
-                      activeSection === item.id ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
-                    }`}
-                  />
+                  <item.icon size={13} />
                   {item.label}
                 </button>
               ))}
-            </nav>
-          </aside>
-
-          <main className="space-y-10">
-            <div className="grid gap-8">
-              <section id="api-keys" className="scroll-mt-24">
-                <SectionCard
-                  id="api-keys-card"
-                  title="API Keys"
-                  description="Downstream access keys (one per line)."
-                  className="h-full"
-                  actions={
-                    <Button
-                      size="sm"
-                      className="h-8 shadow-sm"
-                      onClick={() => void saveApiKeys()}
-                      disabled={busyAction !== null || connectionState !== "ready"}
-                    >
-                      <Save size={14} className="mr-2" />
-                      Save Keys
-                    </Button>
-                  }
-                >
-                  <Textarea
-                    value={apiKeysText}
-                    onChange={(event) => setApiKeysText(event.target.value)}
-                    className="min-h-[320px] border-border/70 bg-background font-mono text-[11px] leading-relaxed"
-                    placeholder="sk-..."
-                    spellCheck={false}
-                  />
-                </SectionCard>
-              </section>
             </div>
+          </nav>
 
-            <section id="runtime" className="scroll-mt-24">
-              <SectionCard
+          <main className="divide-y divide-border/60">
+            <section id="api-keys" className="scroll-mt-24 px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6">
+              <SectionFrame
+                id="api-keys-card"
+                icon={<Database size={15} />}
+                title="API Keys"
+                subtitle="Downstream access keys, one per line."
+                actions={
+                  <Button
+                    size="sm"
+                    onClick={() => void saveApiKeys()}
+                    disabled={busyAction !== null || connectionState !== "ready"}
+                  >
+                    <Save size={14} className="mr-2" />
+                    Save Keys
+                  </Button>
+                }
+              >
+                <Textarea
+                  value={apiKeysText}
+                  onChange={(event) => setApiKeysText(event.target.value)}
+                  className="min-h-80 border-border/70 bg-background font-mono text-[11px] leading-5"
+                  placeholder="sk-..."
+                  spellCheck={false}
+                />
+              </SectionFrame>
+            </section>
+
+            <section id="runtime" className="scroll-mt-24 px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6">
+              <SectionFrame
                 id="runtime-card"
+                icon={<Settings2 size={15} />}
                 title="Runtime Settings"
-                description="Global behavior and failover configuration."
-                  actions={
-                    <Button
-                      size="sm"
-                      className="h-9 shadow-sm"
-                      onClick={() => void saveRuntimeSettings()}
-                      disabled={busyAction !== null || connectionState !== "ready"}
-                    >
+                subtitle="Global routing, failover, and retry behavior."
+                actions={
+                  <Button
+                    size="sm"
+                    onClick={() => void saveRuntimeSettings()}
+                    disabled={busyAction !== null || connectionState !== "ready"}
+                  >
                     Apply Changes
                   </Button>
                 }
               >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <SettingField
-                    label="WebSocket Authentication"
-                    description="Require valid credentials for WS upgrades."
-                  >
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        {runtimeSettings.wsAuth ? "Enabled" : "Disabled"}
-                      </span>
-                      <Switch
-                        checked={runtimeSettings.wsAuth}
-                        onCheckedChange={(checked) =>
-                          setRuntimeSettings((current) => ({ ...current, wsAuth: checked }))
-                        }
-                      />
-                    </div>
-                  </SettingField>
-
-                  <SettingField
-                    label="Project Failover"
-                    description="Switch project automatically on quota exhaustion."
-                  >
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        {runtimeSettings.switchProject ? "Active" : "Inactive"}
-                      </span>
-                      <Switch
-                        checked={runtimeSettings.switchProject}
-                        onCheckedChange={(checked) =>
-                          setRuntimeSettings((current) => ({ ...current, switchProject: checked }))
-                        }
-                      />
-                    </div>
-                  </SettingField>
-
-                  <SettingField
-                    label="Retry Count"
-                    description="Maximum attempts for upstream requests."
-                  >
-                    <Input
-                      type="number"
-                      min={0}
-                      className="h-9 bg-background"
-                      value={runtimeSettings.requestRetry}
-                      onChange={(event) =>
-                        setRuntimeSettings((current) => ({
-                          ...current,
-                          requestRetry: Number(event.target.value || 0),
-                        }))
-                      }
-                    />
-                  </SettingField>
-
-                  <SettingField
-                    label="Retry Cooldown"
-                    description="Seconds to wait before retrying a credential."
-                  >
-                    <Input
-                      type="number"
-                      min={0}
-                      className="h-9 bg-background"
-                      value={runtimeSettings.maxRetryInterval}
-                      onChange={(event) =>
-                        setRuntimeSettings((current) => ({
-                          ...current,
-                          maxRetryInterval: Number(event.target.value || 0),
-                        }))
-                      }
-                    />
-                  </SettingField>
-
-                  <SettingField
-                    label="Routing Strategy"
-                    description="Algorithm for credential selection."
-                  >
-                    <Select
-                      value={runtimeSettings.routingStrategy}
-                      onValueChange={(value) =>
-                        setRuntimeSettings((current) => ({
-                          ...current,
-                          routingStrategy: value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger className="h-9 bg-background">
-                        <SelectValue placeholder="Select strategy" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="round-robin">Round Robin</SelectItem>
-                        <SelectItem value="fill-first">Fill First</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </SettingField>
-                </div>
-              </SectionCard>
-            </section>
-
-            <section id="auth-files" className="scroll-mt-24">
-              <SectionCard
-                id="auth-files-card"
-                title="Auth Files"
-                description="Manage local authentication material and OAuth sessions."
-                actions={
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-9"
-                      onClick={() => void queryAllAuthFileUsage()}
-                      disabled={busyAction !== null || connectionState !== "ready" || probeCapableAuthFiles.length === 0}
-                    >
-                      <RefreshCw size={14} className="mr-2" />
-                      Query all usage
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-9"
-                      onClick={() => void startOAuth()}
-                      disabled={busyAction !== null || connectionState !== "ready"}
-                    >
-                      <ShieldCheck size={14} className="mr-2 text-primary" />
-                      Start OAuth
-                    </Button>
-                  </div>
-                }
-              >
-                <div className="space-y-4">
-                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_repeat(2,minmax(0,0.5fr))]">
-                    <div className="rounded-2xl border border-border/80 bg-muted/15 p-4 shadow-sm shadow-black/5">
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                            OAuth
-                          </div>
-                        </div>
-                        {oauthSession.status !== "idle" ? (
-                          <StatusPill
-                            label={oauthSession.status}
-                            tone={
-                              oauthSession.status === "complete"
-                                ? "success"
-                                : oauthSession.status === "error"
-                                  ? "destructive"
-                                  : oauthSession.status === "pending" || oauthSession.status === "launching"
-                                    ? "warning"
-                                    : "default"
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+                  <div className="overflow-hidden rounded-xl border border-border/70 bg-background/75">
+                    <div className="divide-y divide-border/60">
+                      <SettingField
+                        label="WebSocket Authentication"
+                        description="Require valid credentials for WS upgrades."
+                      >
+                        <div className="flex items-center gap-3 sm:justify-end">
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            {runtimeSettings.wsAuth ? "Enabled" : "Disabled"}
+                          </span>
+                          <Switch
+                            checked={runtimeSettings.wsAuth}
+                            onCheckedChange={(checked) =>
+                              setRuntimeSettings((current) => ({ ...current, wsAuth: checked }))
                             }
                           />
-                        ) : null}
+                        </div>
+                      </SettingField>
+
+                      <SettingField
+                        label="Project Failover"
+                        description="Switch project automatically on quota exhaustion."
+                      >
+                        <div className="flex items-center gap-3 sm:justify-end">
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            {runtimeSettings.switchProject ? "Active" : "Inactive"}
+                          </span>
+                          <Switch
+                            checked={runtimeSettings.switchProject}
+                            onCheckedChange={(checked) =>
+                              setRuntimeSettings((current) => ({ ...current, switchProject: checked }))
+                            }
+                          />
+                        </div>
+                      </SettingField>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border/70 bg-background/75 px-3 py-3 sm:px-4">
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="space-y-2">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-foreground">Retry Count</label>
+                          <p className="text-[11px] leading-5 text-muted-foreground">
+                            Maximum attempts for upstream requests.
+                          </p>
+                        </div>
+                        <Input
+                          type="number"
+                          min={0}
+                          className="bg-background"
+                          value={runtimeSettings.requestRetry}
+                          onChange={(event) =>
+                            setRuntimeSettings((current) => ({
+                              ...current,
+                              requestRetry: Number(event.target.value || 0),
+                            }))
+                          }
+                        />
                       </div>
-                      <div className="space-y-3">
-                        {oauthSession.status !== "idle" ? (
-                          <div className="rounded-xl border border-border/70 bg-background/80 p-3 text-sm text-muted-foreground">
-                            {oauthSession.message}
-                          </div>
-                        ) : null}
 
-                        {oauthSession.status === "pending" && oauthSession.state ? (
-                          <form
-                            className="rounded-xl border border-dashed border-border bg-muted/10 p-3"
-                            onSubmit={(event) => {
-                              event.preventDefault()
-                              void submitOAuthCallbackUrl()
-                            }}
-                          >
-                            <div className="space-y-1">
-                              <label
-                                htmlFor="oauth-callback-url"
-                                className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground"
-                              >
-                                Paste callback URL
-                              </label>
-                              <p className="text-xs leading-relaxed text-muted-foreground">
-                                If the browser does not return here automatically, paste the final callback URL to finish this OAuth session.
-                              </p>
-                            </div>
+                      <div className="space-y-2">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-foreground">Retry Cooldown</label>
+                          <p className="text-[11px] leading-5 text-muted-foreground">
+                            Seconds to wait before retrying a credential.
+                          </p>
+                        </div>
+                        <Input
+                          type="number"
+                          min={0}
+                          className="bg-background"
+                          value={runtimeSettings.maxRetryInterval}
+                          onChange={(event) =>
+                            setRuntimeSettings((current) => ({
+                              ...current,
+                              maxRetryInterval: Number(event.target.value || 0),
+                            }))
+                          }
+                        />
+                      </div>
 
-                            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-                              <Input
-                                id="oauth-callback-url"
-                                aria-label="Pasted OAuth callback URL"
-                                value={oauthCallbackUrlDraft}
-                                onChange={(event) => setOAuthCallbackUrlDraft(event.target.value)}
-                                className="bg-background"
-                                placeholder="https://.../callback?state=..."
-                                spellCheck={false}
-                              />
-                              <Button
-                                type="submit"
-                                size="sm"
-                                variant="outline"
-                                className="h-8"
-                                disabled={
-                                  busyAction !== null ||
-                                  connectionState !== "ready" ||
-                                  oauthCallbackUrlDraft.trim() === ""
-                                }
-                              >
-                                {busyAction === `oauth-callback:${oauthSession.state}` ? (
-                                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                                ) : null}
-                                Submit callback
-                              </Button>
-                            </div>
-                          </form>
-                        ) : null}
+                      <div className="space-y-2 sm:col-span-2 xl:col-span-1">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-foreground">Routing Strategy</label>
+                          <p className="text-[11px] leading-5 text-muted-foreground">
+                            Algorithm for credential selection.
+                          </p>
+                        </div>
+                        <Select
+                          value={runtimeSettings.routingStrategy}
+                          onValueChange={(value) =>
+                            setRuntimeSettings((current) => ({
+                              ...current,
+                              routingStrategy: value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="w-full bg-background">
+                            <SelectValue placeholder="Select strategy" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="round-robin">Round Robin</SelectItem>
+                            <SelectItem value="fill-first">Fill First</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
+                  </div>
+                </div>
+              </SectionFrame>
+            </section>
 
-                    <div className="rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5">
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        Managed files
-                      </div>
-                      <div className="mt-1 text-2xl font-semibold text-foreground">{authFiles.length}</div>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        {authFiles.filter((file) => !file.disabled).length} active seats
-                      </div>
-                    </div>
+            <section id="auth-files" className="scroll-mt-24 px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6">
+              <SectionFrame
+                id="auth-files-card"
+                icon={<FileText size={15} />}
+                title="Auth Files"
+                subtitle="Managed authentication material and OAuth sessions."
+              >
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-border/70 bg-background/75">
+                    <div className="flex flex-col gap-3 border-b border-border/60 px-3 py-3 sm:px-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                            OAuth
+                          </span>
+                          {oauthSession.status !== "idle" ? (
+                            <StatusPill
+                              label={oauthSession.status}
+                              tone={
+                                oauthSession.status === "complete"
+                                  ? "success"
+                                  : oauthSession.status === "error"
+                                    ? "destructive"
+                                    : oauthSession.status === "pending" || oauthSession.status === "launching"
+                                      ? "warning"
+                                      : "default"
+                              }
+                            />
+                          ) : null}
+                        </div>
 
-                    <div className="rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm shadow-black/5">
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        Usage-ready files
-                      </div>
-                      <div className="mt-1 text-2xl font-semibold text-foreground">{probeCapableAuthFiles.length}</div>
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          {probeCapableAuthFiles.length > 0
-                            ? "Ready for per-file or batch usage refresh."
-                            : "No auth files expose usage refresh."}
+                        <div className="text-sm text-foreground">
+                          {oauthSession.status !== "idle"
+                            ? oauthSession.message
+                            : "Start OAuth to launch a new browser handoff for a Codex auth file."}
                         </div>
                       </div>
+
+                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void queryAllAuthFileUsage()}
+                          disabled={
+                            busyAction !== null || connectionState !== "ready" || probeCapableAuthFiles.length === 0
+                          }
+                        >
+                          <RefreshCw size={14} className="mr-2" />
+                          Query all usage
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void startOAuth()}
+                          disabled={busyAction !== null || connectionState !== "ready"}
+                        >
+                          <ShieldCheck size={14} className="mr-2 text-primary" />
+                          Start OAuth
+                        </Button>
+                      </div>
                     </div>
 
-                  {authFiles.length > 0 ? (
-                    authFiles.map((file) => (
-                      <AuthFileCard
-                        key={file.id}
-                        file={file}
-                        draft={authFileDrafts[file.name] ?? createAuthFileDraft(file)}
-                        disabled={busyAction !== null || connectionState !== "ready"}
-                        onDownload={downloadAuthFile}
-                        onDraftChange={updateAuthFileDraft}
-                        onQueryUsage={queryAuthFileUsage}
-                        onSaveDetails={saveAuthFileDetails}
-                        onToggleDisabled={toggleAuthFileDisabled}
+                    <div className="grid gap-3 px-3 py-3 sm:grid-cols-3 sm:px-4">
+                      <StripMetric
+                        label="Managed files"
+                        value={authFiles.length}
+                        detail={`${authFiles.filter((file) => !file.disabled).length} active seats`}
                       />
-                    ))
+                      <StripMetric
+                        label="Usage-ready files"
+                        value={probeCapableAuthFiles.length}
+                        detail={
+                          probeCapableAuthFiles.length > 0
+                            ? "Ready for per-file or batch usage refresh."
+                            : "No auth files expose usage refresh."
+                        }
+                      />
+                      <StripMetric
+                        label="OAuth state"
+                        value={oauthSession.status === "idle" ? "Idle" : oauthSession.status}
+                        detail={oauthSession.state ? `State ${oauthSession.state}` : "Browser handoff stays same-origin."}
+                      />
+                    </div>
+
+                    {oauthSession.status === "pending" && oauthSession.state ? (
+                      <form
+                        className="border-t border-border/60 px-3 py-3 sm:px-4"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          void submitOAuthCallbackUrl()
+                        }}
+                      >
+                        <div className="space-y-1">
+                          <label
+                            htmlFor="oauth-callback-url"
+                            className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground"
+                          >
+                            Paste callback URL
+                          </label>
+                          <p className="text-[11px] leading-5 text-muted-foreground">
+                            If the browser does not return here automatically, paste the final callback URL to finish this OAuth session.
+                          </p>
+                        </div>
+
+                        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
+                          <Input
+                            id="oauth-callback-url"
+                            aria-label="Pasted OAuth callback URL"
+                            value={oauthCallbackUrlDraft}
+                            onChange={(event) => setOAuthCallbackUrlDraft(event.target.value)}
+                            className="bg-background"
+                            placeholder="https://.../callback?state=..."
+                            spellCheck={false}
+                          />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              busyAction !== null ||
+                              connectionState !== "ready" ||
+                              oauthCallbackUrlDraft.trim() === ""
+                            }
+                          >
+                            {busyAction === `oauth-callback:${oauthSession.state}` ? (
+                              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            ) : null}
+                            Submit callback
+                          </Button>
+                        </div>
+                      </form>
+                    ) : null}
+                  </div>
+
+                  {authFiles.length > 0 ? (
+                    <div className="space-y-3">
+                      {authFiles.map((file) => (
+                        <AuthFileCard
+                          key={file.id}
+                          file={file}
+                          draft={authFileDrafts[file.name] ?? createAuthFileDraft(file)}
+                          disabled={busyAction !== null || connectionState !== "ready"}
+                          onDownload={downloadAuthFile}
+                          onDraftChange={updateAuthFileDraft}
+                          onQueryUsage={queryAuthFileUsage}
+                          onSaveDetails={saveAuthFileDetails}
+                          onToggleDisabled={toggleAuthFileDisabled}
+                        />
+                      ))}
+                    </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/10 py-10 text-center">
-                      <FileText size={32} className="mb-2 text-muted-foreground" />
+                    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/10 py-8 text-center">
+                      <FileText size={28} className="mb-2 text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">No auth files found</p>
                     </div>
                   )}
                 </div>
-              </SectionCard>
+              </SectionFrame>
             </section>
-
-            <footer className="border-t border-border/70 pt-10 pb-20">
-              <div className="flex flex-col items-center justify-between gap-4 text-xs text-muted-foreground md:flex-row">
-                <p>© 2026 Cockpit Management. Backend selection stays client-side.</p>
-                <div className="flex items-center gap-4">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-muted-foreground">
-                    <ExternalLink size={12} />
-                    /v0/management
-                  </span>
-                  <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-muted-foreground">
-                    <span className="truncate">{backendOrigin}</span>
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-muted-foreground">
-                    Auth file models available
-                  </span>
-                </div>
-              </div>
-            </footer>
           </main>
         </div>
+
+        <footer className="mt-4 border-t border-border/60 py-3 text-[11px] text-muted-foreground">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span>© 2026 Cockpit Management</span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>/v0/management</span>
+              <span className="truncate">{backendOrigin}</span>
+              <span>Backend selection stays client-side.</span>
+            </div>
+          </div>
+        </footer>
       </div>
     </div>
   )
