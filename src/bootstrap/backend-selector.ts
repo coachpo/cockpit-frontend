@@ -5,9 +5,14 @@ import {
   saveSelectedBackendOrigin,
 } from "@/lib/backend-origin"
 
+export interface BackendSelection {
+  backendOrigin: string
+  managementPassword: string
+}
+
 interface BackendSelectorController {
-  currentOrigin: string | null
-  subscribe: (listener: (origin: string) => void) => () => void
+  readonly currentSelection: BackendSelection | null
+  subscribe: (listener: (selection: BackendSelection) => void) => () => void
 }
 
 function getRequiredElement<T extends HTMLElement>(
@@ -55,29 +60,32 @@ function setStatusMessage(status: HTMLElement, message: string, tone: "default" 
 
 export function setupBackendSelector(): BackendSelectorController {
   const form = getRequiredElement("backend-selector-form", HTMLFormElement)
-  const input = getRequiredElement("backend-origin-input", HTMLInputElement)
+  const originInput = getRequiredElement("backend-origin-input", HTMLInputElement)
+  const passwordInput = getRequiredElement("management-password-input", HTMLInputElement)
   const select = getRequiredElement("backend-history-select", HTMLSelectElement)
   const status = getRequiredElement("backend-selector-status", HTMLParagraphElement)
 
-  const listeners = new Set<(origin: string) => void>()
-  let currentOrigin = readSelectedBackendOrigin()
+  const listeners = new Set<(selection: BackendSelection) => void>()
+  const savedOrigin = readSelectedBackendOrigin()
+  let currentSelection: BackendSelection | null = null
   let history = readBackendOriginHistory()
 
-  input.value = currentOrigin ?? ""
-  renderHistoryOptions(select, history, currentOrigin)
+  originInput.value = savedOrigin ?? ""
+  passwordInput.value = ""
+  renderHistoryOptions(select, history, savedOrigin)
   setStatusMessage(
     status,
-    currentOrigin
-      ? `Using saved backend ${currentOrigin}. Change it here to switch instances.`
-      : "Choose the backend origin before loading the management console.",
+    savedOrigin
+      ? `Using saved backend ${savedOrigin} as a starting point. Enter the management password and connect before loading the console.`
+      : "Choose the backend origin and enter the management password before loading the management console.",
     "default",
   )
 
   select.addEventListener("change", () => {
     if (select.value) {
-      input.value = select.value
-      input.focus()
-      input.setSelectionRange(input.value.length, input.value.length)
+      originInput.value = select.value
+      originInput.focus()
+      originInput.setSelectionRange(originInput.value.length, originInput.value.length)
     }
   })
 
@@ -86,31 +94,50 @@ export function setupBackendSelector(): BackendSelectorController {
 
     let nextOrigin: string
     try {
-      nextOrigin = normalizeBackendOrigin(input.value)
+      nextOrigin = normalizeBackendOrigin(originInput.value)
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid backend origin."
       setStatusMessage(status, message, "error")
-      input.focus()
+      originInput.focus()
       return
     }
 
+    const nextPassword = passwordInput.value.trim()
+    if (nextPassword === "") {
+      setStatusMessage(
+        status,
+        "Enter the management password before connecting to the backend management API.",
+        "error",
+      )
+      passwordInput.focus()
+      return
+    }
+
+    const nextSelection: BackendSelection = {
+      backendOrigin: nextOrigin,
+      managementPassword: nextPassword,
+    }
+
     history = saveSelectedBackendOrigin(nextOrigin)
-    currentOrigin = nextOrigin
-    input.value = nextOrigin
-    renderHistoryOptions(select, history, currentOrigin)
+    currentSelection = nextSelection
+    originInput.value = nextOrigin
+    passwordInput.value = nextPassword
+    renderHistoryOptions(select, history, nextOrigin)
     setStatusMessage(
       status,
-      `Connected to ${nextOrigin}. Switching backends reloads dashboard data and OAuth polling.`,
+      `Connected to ${nextOrigin}. Switching backends reloads dashboard data and OAuth polling. The management password stays in memory for this browser session only.`,
       "default",
     )
 
     listeners.forEach((listener) => {
-      listener(nextOrigin)
+      listener(nextSelection)
     })
   })
 
   return {
-    currentOrigin,
+    get currentSelection() {
+      return currentSelection
+    },
     subscribe(listener) {
       listeners.add(listener)
       return () => {
