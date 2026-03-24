@@ -566,19 +566,19 @@ function AuthFileUsageSummary({
       )}
 
       {metadataEntries.length || hasUsageData ? (
-        <div className="grid gap-3 border-t border-border/60 pt-3 xl:grid-cols-2">
+        <div className="grid min-w-0 gap-3 border-t border-border/60 pt-3 xl:grid-cols-2">
           {metadataEntries.length ? (
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 File details
               </div>
-              <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+              <dl className="grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-1">
                 {metadataEntries.map((entry) => (
                   <div key={`${entry.label}:${entry.value}`} className="grid min-w-0 gap-1">
                     <dt className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                       {entry.label}
                     </dt>
-                    <dd className="break-words text-[13px] font-medium text-foreground">{entry.value}</dd>
+                    <dd className="min-w-0 whitespace-normal break-words [overflow-wrap:anywhere] text-[13px] font-medium text-foreground">{entry.value}</dd>
                   </div>
                 ))}
               </dl>
@@ -586,17 +586,17 @@ function AuthFileUsageSummary({
           ) : null}
 
           {usageEntries.length ? (
-            <div className={`space-y-2 ${metadataEntries.length ? "border-t border-border/60 pt-3 xl:border-t-0 xl:border-l xl:pl-4" : ""}`}>
+            <div className={`min-w-0 space-y-2 ${metadataEntries.length ? "border-t border-border/60 pt-3 xl:border-t-0 xl:border-l xl:pl-4" : ""}`}>
               <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 Usage details
               </div>
-              <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+              <dl className="grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-1">
                 {usageEntries.map((entry) => (
                   <div key={`${entry.label}:${entry.value}`} className="grid min-w-0 gap-1">
                     <dt className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                       {entry.label}
                     </dt>
-                    <dd className="break-words text-[13px] font-medium text-foreground">{entry.value}</dd>
+                    <dd className="min-w-0 whitespace-normal break-words [overflow-wrap:anywhere] text-[13px] font-medium text-foreground">{entry.value}</dd>
                   </div>
                 ))}
               </dl>
