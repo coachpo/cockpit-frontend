@@ -30,6 +30,7 @@ import {
   ManagementRequestError,
   createManagementClient,
 } from "@/lib/management-api"
+import { MANAGEMENT_BASE_PATH } from "@/types/management"
 import {
   getAuthFileUsageRefreshPath,
   mergeAuthFileUsageResponse,
@@ -1377,12 +1378,13 @@ function App({ backendOrigin }: AppProps) {
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                       <div className="space-y-2">
                         <div className="space-y-1">
-                          <label className="text-sm font-medium text-foreground">Retry Count</label>
+                          <label htmlFor="runtime-request-retry" className="text-sm font-medium text-foreground">Retry Count</label>
                           <p className="text-[11px] leading-5 text-muted-foreground">
                             Maximum attempts for upstream requests.
                           </p>
                         </div>
                         <Input
+                          id="runtime-request-retry"
                           type="number"
                           min={0}
                           className="bg-background"
@@ -1398,12 +1400,13 @@ function App({ backendOrigin }: AppProps) {
 
                       <div className="space-y-2">
                         <div className="space-y-1">
-                          <label className="text-sm font-medium text-foreground">Retry Cooldown</label>
+                          <label htmlFor="runtime-max-retry-interval" className="text-sm font-medium text-foreground">Retry Cooldown</label>
                           <p className="text-[11px] leading-5 text-muted-foreground">
                             Seconds to wait before retrying a credential.
                           </p>
                         </div>
                         <Input
+                          id="runtime-max-retry-interval"
                           type="number"
                           min={0}
                           className="bg-background"
@@ -1419,7 +1422,7 @@ function App({ backendOrigin }: AppProps) {
 
                       <div className="space-y-2 sm:col-span-2 xl:col-span-1">
                         <div className="space-y-1">
-                          <label className="text-sm font-medium text-foreground">Routing Strategy</label>
+                          <label htmlFor="runtime-routing-strategy" className="text-sm font-medium text-foreground">Routing Strategy</label>
                           <p className="text-[11px] leading-5 text-muted-foreground">
                             Algorithm for credential selection.
                           </p>
@@ -1433,7 +1436,7 @@ function App({ backendOrigin }: AppProps) {
                             }))
                           }
                         >
-                          <SelectTrigger className="w-full bg-background">
+                          <SelectTrigger id="runtime-routing-strategy" className="w-full bg-background">
                             <SelectValue placeholder="Select strategy" />
                           </SelectTrigger>
                           <SelectContent>
@@ -1614,7 +1617,7 @@ function App({ backendOrigin }: AppProps) {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>© 2026 Cockpit Management</span>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span>/v0/management</span>
+              <span>{MANAGEMENT_BASE_PATH}</span>
               <span className="truncate">{backendOrigin}</span>
               <span>Backend selection stays client-side.</span>
             </div>

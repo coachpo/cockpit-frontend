@@ -1,6 +1,6 @@
 # Cockpit Frontend
 
-Cockpit Frontend is the React + Vite management console for the Cockpit backend. It talks to the same-origin backend management surface at `/v0/management`, owns the browser-facing `/codex/callback` route for OAuth handoff, and exposes the full dashboard from a single-page UI.
+Cockpit Frontend is the React + Vite management console for the Cockpit backend. It talks to the same-origin backend management surface at `/api`, owns the browser-facing `/codex/callback` route for OAuth handoff, and exposes the full dashboard from a single-page UI.
 
 ## Stack
 
@@ -19,7 +19,7 @@ pnpm dev
 
 Use Node 24.x for local development. The repo declares `pnpm@10.32.1` in `package.json`, so running through Corepack keeps CI and local installs aligned.
 
-By default the app targets the current origin on startup. Cross-origin backend overrides are no longer exposed in the UI, so local and deployed setups are expected to proxy `/v0/management` on the same origin.
+By default the app targets the current origin on startup. Cross-origin backend overrides are no longer exposed in the UI, so local and deployed setups are expected to proxy `/api` on the same origin.
 
 ## Build and preview
 

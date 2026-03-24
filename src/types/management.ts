@@ -1,4 +1,4 @@
-export const MANAGEMENT_BASE_PATH = "/v0/management"
+export const MANAGEMENT_BASE_PATH = "/api"
 
 export interface RuntimeSettings {
   "ws-auth": boolean

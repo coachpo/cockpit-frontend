@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import App from "@/App"
+import { MANAGEMENT_BASE_PATH } from "@/types/management"
 
 const fetchMock = vi.fn<typeof fetch>()
 const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8080"
@@ -53,7 +54,7 @@ function getRequestedUrls() {
 
 function managementUrl(path: string, origin = DEFAULT_BACKEND_ORIGIN) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
-  return new URL(`/v0/management${normalizedPath}`, origin).toString()
+  return new URL(`${MANAGEMENT_BASE_PATH}${normalizedPath}`, origin).toString()
 }
 
 function getMatchingRequests(url: string, method?: string) {
@@ -245,7 +246,7 @@ describe("App", () => {
       const pathname = new URL(url).pathname
 
       switch (`${method} ${pathname}`) {
-        case "GET /v0/management/runtime-settings":
+        case `GET ${MANAGEMENT_BASE_PATH}/runtime-settings`:
           return jsonResponse({
             "ws-auth": false,
             "request-retry": 3,
@@ -253,13 +254,13 @@ describe("App", () => {
             "routing-strategy": "round-robin",
             "switch-project": true,
           })
-        case "PUT /v0/management/runtime-settings":
+        case `PUT ${MANAGEMENT_BASE_PATH}/runtime-settings`:
           return jsonResponse({ status: "ok" })
-        case "GET /v0/management/api-keys":
+        case `GET ${MANAGEMENT_BASE_PATH}/api-keys`:
           return jsonResponse({ items: ["sk-primary", "sk-backup"] })
-        case "PUT /v0/management/api-keys":
+        case `PUT ${MANAGEMENT_BASE_PATH}/api-keys`:
           return jsonResponse({ status: "ok" })
-        case "GET /v0/management/auth-files":
+        case `GET ${MANAGEMENT_BASE_PATH}/auth-files`:
           return jsonResponse({
             items: [
               {
@@ -311,14 +312,14 @@ describe("App", () => {
               },
             ],
           })
-        case "GET /v0/management/auth-files/primary-codex.json/content":
+        case `GET ${MANAGEMENT_BASE_PATH}/auth-files/primary-codex.json/content`:
           return new Response(JSON.stringify({ email: "owner@example.com" }), {
             status: 200,
             headers: { "content-type": "application/json" },
           })
-        case "PATCH /v0/management/auth-files/primary-codex.json":
+        case `PATCH ${MANAGEMENT_BASE_PATH}/auth-files/primary-codex.json`:
           return jsonResponse({ status: "ok" })
-        case "POST /v0/management/auth-files/primary-codex.json/usage":
+        case `POST ${MANAGEMENT_BASE_PATH}/auth-files/primary-codex.json/usage`:
           return jsonResponse({
             limits: [
               {
@@ -329,7 +330,7 @@ describe("App", () => {
             ],
             resets_at: "tomorrow 09:00 UTC",
           })
-        case "POST /v0/management/auth-files/backup-codex.json/usage":
+        case `POST ${MANAGEMENT_BASE_PATH}/auth-files/backup-codex.json/usage`:
           return jsonResponse({
             plan_type: "team",
             rate_limit: {
@@ -364,15 +365,15 @@ describe("App", () => {
               balance: null,
             },
           })
-        case "POST /v0/management/oauth-sessions":
+        case `POST ${MANAGEMENT_BASE_PATH}/oauth-sessions`:
           return jsonResponse({
             status: "ok",
             url: "https://auth.example/codex/start",
             state: "oauth-state-1",
           })
-        case "POST /v0/management/oauth-sessions/oauth-state-1/callback":
+        case `POST ${MANAGEMENT_BASE_PATH}/oauth-sessions/oauth-state-1/callback`:
           return jsonResponse({ status: "ok" })
-        case "GET /v0/management/oauth-sessions/oauth-state-1": {
+        case `GET ${MANAGEMENT_BASE_PATH}/oauth-sessions/oauth-state-1`: {
           const response = oauthSessionStatuses.shift() ?? {
             status: "complete",
             provider: "codex",

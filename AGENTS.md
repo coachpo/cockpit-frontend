@@ -29,7 +29,7 @@ Read `src/AGENTS.md` for source-tree rules. Root covers setup, build, and repo-l
 |------|----------|-------|
 | App shell and all management sections | `src/App.tsx` | canonical composition hotspot; no router or external state library |
 | Frontend bootstrap and backend selection | `src/main.tsx`, `src/bootstrap/backend-selector.ts`, `src/lib/backend-origin.ts` | chooses the active backend origin before mounting `App`, persists recent origins in localStorage, and reloads dashboard state on switch |
-| Backend management client | `src/lib/management-api.ts` | wraps `backendOrigin + /v0/management`, normalizes error payloads, and leaves caller-supplied headers explicit |
+| Backend management client | `src/lib/management-api.ts` | wraps `backendOrigin + /api`, normalizes error payloads, and leaves caller-supplied headers explicit |
 | Auth-file helpers | `src/lib/auth-file-usage.ts`, `src/lib/auth-file-display.ts` | usage-probe request building plus auth-file label/status formatting |
 | Shared management types | `src/types/management.ts` | `RuntimeSettings`, `AuthFile`, `ManagementApiCallRequest`, and response shapes |
 | Reusable section wrappers | `src/components/section-card.tsx`, `src/components/json-editor-card.tsx` | preferred scaffolding for new dashboard sections |
@@ -53,13 +53,13 @@ pnpm preview
 - Use the `@/` alias for internal imports; it maps to `./src` in both Vite and TypeScript configs.
 - Keep backend-origin selection and history in `src/bootstrap/backend-selector.ts` and `src/lib/backend-origin.ts`; do not recreate ad hoc storage keys or inline origin-picking state into `App.tsx`.
 - Keep backend calls in `src/lib/management-api.ts` instead of sprinkling raw `fetch` calls through UI components.
-- Keep management path and origin composition centralized through `createManagementClient`; do not rebuild `/v0/management` URLs inline across components.
+- Keep management path and origin composition centralized through `createManagementClient`; do not rebuild `/api` URLs inline across components.
 - Keep auth-file formatting and usage-probe logic in `src/lib/auth-file-display.ts` and `src/lib/auth-file-usage.ts` instead of re-deriving it inside `App.tsx`.
 - Treat `src/components/ui/` as generated-style primitives and keep app-specific composition in `src/components/` or `src/App.tsx`.
 - Tailwind config is CSS-first in `src/index.css`; do not assume a `tailwind.config.*` file exists.
 - `src/App.css` and `src/assets/` are leftover template artifacts, not the canonical styling or asset path for the current dashboard.
 
 ## NOTES
-- Vite dev proxy still forwards same-origin `/v0/management`, `/v1`, and `/api/provider` requests to `COCKPIT_LOCAL_BACKEND_URL`, while the browser bootstrap can persist a full backend origin through `src/bootstrap/backend-selector.ts`.
+- Vite dev proxy still forwards same-origin `/api`, `/v1`, and `/api/provider` requests to `COCKPIT_LOCAL_BACKEND_URL`, while the browser bootstrap can persist a full backend origin through `src/bootstrap/backend-selector.ts`.
 - Frontend CI currently runs install, lint, and build only. `pnpm test` exists locally but is not part of `.github/workflows/ci.yml` yet.
 - Docker builds accept `VITE_GIT_RUN_NUMBER` and `VITE_GIT_REVISION`, then serve the built app from nginx.

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createManagementClient } from "@/lib/management-api"
+import { MANAGEMENT_BASE_PATH } from "@/types/management"
 
 const fetchMock = vi.fn<typeof fetch>()
 const BACKEND_ORIGIN = "https://backend.example:9443"
@@ -23,7 +24,7 @@ describe("createManagementClient", () => {
     await createManagementClient(BACKEND_ORIGIN).getJson("/status")
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${BACKEND_ORIGIN}/v0/management/status`,
+      `${BACKEND_ORIGIN}${MANAGEMENT_BASE_PATH}/status`,
       expect.objectContaining({
         headers: expect.any(Headers),
       }),
