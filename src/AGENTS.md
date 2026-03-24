@@ -3,12 +3,14 @@
 Parent: `../AGENTS.md`
 
 ## OVERVIEW
-Frontend source tree for the Cockpit management console. `App.tsx` is the canonical app shell: it owns the sidebar nav, feedback/busy state, OAuth flow, Codex Keys / API Keys / Runtime Settings / Auth Files sections, auth-file dialogs, and auth usage probing.
+Frontend source tree for the Cockpit management console. `main.tsx` boots the backend selector, then hands the chosen `backendOrigin` into `App.tsx`, which owns the sidebar nav, feedback/busy state, OAuth flow, API Keys / Runtime Settings / Auth Files sections, auth-file dialogs, and auth usage probing.
 
 ## WHERE TO LOOK
-- `App.tsx`: `NAV_ITEMS`, the Codex Keys / API Keys / Runtime Settings / Auth Files sections, `withBusy`, OAuth flow, and auth-file edit/usage dialogs.
-- `main.tsx`: React mount only; keep it thin.
-- `lib/management-api.ts`: typed same-origin request helper plus `ManagementRequestError`; caller-supplied headers stay explicit.
+- `App.tsx`: `NAV_ITEMS`, the API Keys / Runtime Settings / Auth Files sections, `withBusy`, OAuth flow, and auth-file edit/usage dialogs.
+- `main.tsx`: React mount plus backend-selector wiring; keep it thin.
+- `bootstrap/backend-selector.ts`: pre-App backend-origin chooser, recent-origin history UI, and subscription handoff into `App`.
+- `lib/backend-origin.ts`: backend-origin normalization and localStorage persistence helpers shared by the bootstrap flow.
+- `lib/management-api.ts`: typed request helper built around the selected `backendOrigin` plus `ManagementRequestError`; caller-supplied headers stay explicit.
 - `lib/auth-file-usage.ts`: auth-file usage probe request building and response merge helpers.
 - `lib/auth-file-display.ts`: auth-file label, status, and usage-display formatting helpers.
 - `types/management.ts`: shared request and response contracts plus `MANAGEMENT_BASE_PATH`.
@@ -20,8 +22,9 @@ Frontend source tree for the Cockpit management console. `App.tsx` is the canoni
 
 ## LOCAL CONVENTIONS
 - Add or reorder sidebar sections by extending `NAV_ITEMS` and rendering a `SectionCard` or `JsonEditorCard` in `App.tsx`.
+- Keep backend-origin selection and history in `bootstrap/backend-selector.ts` and `lib/backend-origin.ts`; do not introduce one-off storage keys or alternate selector flows inside `App.tsx`.
 - Keep management API paths centralized through `createManagementClient`; do not add parallel raw `fetch` wrappers.
-- Keep management requests same-origin through `createManagementClient`; do not reintroduce per-browser base-url storage or override helpers.
+- Keep management requests routed through the selected `backendOrigin` via `createManagementClient`; do not rebuild origin/base-path composition inline across sections.
 - Keep auth-file usage probes and display formatting in the `lib/auth-file-*.ts` helpers instead of duplicating them inline in `App.tsx`.
 - Keep new shared contracts in `types/management.ts` before introducing local inline type copies.
 - Use `@/` imports everywhere under `src/`.
@@ -31,6 +34,7 @@ Frontend source tree for the Cockpit management console. `App.tsx` is the canoni
 
 ## ANTI-PATTERNS
 - Do not introduce a second API base-path constant outside `types/management.ts`.
+- Do not bypass `bootstrap/backend-selector.ts` and `lib/backend-origin.ts` with ad hoc backend-origin prompts or storage helpers.
 - Do not add a router, global store, or alternate entrypoint without updating this file and `frontend/AGENTS.md`.
 - Do not treat `App.css` or `assets/` as canonical sources for current dashboard styling.
 
