@@ -273,7 +273,6 @@ describe("App", () => {
                 status_message: "Ready for interactive use",
                 priority: 0,
                 disabled: false,
-                source: "file",
                 usage_available: true,
                 usage: {
                   limits: [
@@ -294,7 +293,6 @@ describe("App", () => {
                 status_message: "Warm standby",
                 priority: 2,
                 disabled: false,
-                source: "oauth",
                 usage_available: true,
               },
               {
@@ -307,7 +305,6 @@ describe("App", () => {
                 status_message: "Imported without usage refresh",
                 priority: 4,
                 disabled: false,
-                source: "file",
                 usage_available: false,
               },
             ],
@@ -461,6 +458,7 @@ describe("App", () => {
 
     expect(primaryRow.textContent).toContain("12 / 40")
     expect(primaryRow.textContent).toContain("tomorrow 09:00 UTC")
+    expect(primaryRow.textContent).not.toContain("Source")
 
     await act(async () => {
       findButton(primaryRow, "Download JSON").click()

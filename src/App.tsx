@@ -483,10 +483,6 @@ function getAuthFileMetadataEntries(file: AuthFile) {
     entries.push({ label: "Provider", value: file.provider.trim() })
   }
 
-  if (typeof file.source === "string" && file.source.trim() !== "") {
-    entries.push({ label: "Source", value: file.source.trim() })
-  }
-
   if (typeof file.priority === "number" && !Number.isNaN(file.priority)) {
     entries.push({ label: "Priority", value: String(file.priority) })
   }
@@ -656,11 +652,6 @@ function AuthFileCard({
                 {file.provider ? (
                   <Badge variant="outline" className="text-[11px] text-muted-foreground">
                     {file.provider}
-                  </Badge>
-                ) : null}
-                {file.source ? (
-                  <Badge variant="outline" className="text-[11px] text-muted-foreground">
-                    {file.source}
                   </Badge>
                 ) : null}
                 {file.status_message ? (

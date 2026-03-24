@@ -38,7 +38,6 @@ export interface AuthFile {
   disabled?: boolean
   unavailable?: boolean
   runtime_only?: boolean
-  source?: string
   size?: number
   modtime?: string
   created_at?: string
