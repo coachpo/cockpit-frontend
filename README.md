@@ -1,6 +1,6 @@
 # Cockpit Frontend
 
-Cockpit Frontend is the React + Vite management console for the Cockpit backend. It talks to the same-origin backend management surface at `/api`, owns the browser-facing `/codex/callback` route for OAuth handoff, and exposes the full dashboard from a single-page UI.
+Cockpit Frontend is the React + Vite management console for the Cockpit backend. It can be served independently from the backend, lets the user choose a target backend origin in the UI before the dashboard loads, owns the browser-facing `/codex/callback` route for OAuth handoff, and exposes the full dashboard from a single-page UI.
 
 ## Stack
 
@@ -19,7 +19,7 @@ pnpm dev
 
 Use Node 24.x for local development. The repo declares `pnpm@10.32.1` in `package.json`, so running through Corepack keeps CI and local installs aligned.
 
-By default the app targets the current origin on startup. Cross-origin backend overrides are no longer exposed in the UI, so local and deployed setups are expected to proxy `/api` on the same origin.
+On startup the app shows a backend instance selector and stores the chosen origin in `localStorage`, so a deployed frontend can connect to any reachable Cockpit backend. For local development, `pnpm dev` still supports same-origin proxying through `COCKPIT_LOCAL_BACKEND_URL`, which is what the repo root `start.sh` uses.
 
 ## Build and preview
 
@@ -41,7 +41,7 @@ Supported build args:
 - `VITE_GIT_RUN_NUMBER`
 - `VITE_GIT_REVISION`
 
-`frontend/nginx.conf` keeps SPA routing alive with `try_files $uri $uri/ /index.html`.
+`frontend/nginx.conf` keeps SPA routing alive with `try_files $uri $uri/ /index.html`. The built app still shows the backend-origin selector, so Docker and npm-based frontend deployments can be pointed at different backend instances at runtime without rebuilding the image.
 
 ## Source map
 
